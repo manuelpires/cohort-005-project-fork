@@ -4,6 +4,7 @@ import {
   archiveCommentNotifications,
   fakeNotifications,
   syncNotificationsUser,
+  translateKnockPreferences,
   triggerNotification,
   type NotificationsPort,
 } from "./notifications.server";
@@ -187,6 +188,49 @@ describe("triggering a notification workflow through the fake", () => {
 
     expect(notifications.triggers[0].deliveredTo).toEqual([USER.id]);
     expect(notifications.triggers[0].suppressedFor).toEqual([]);
+  });
+});
+
+describe("translateKnockPreferences", () => {
+  it("reads a feed-channel value the vendor reported, and a whole-category boolean", () => {
+    expect(
+      translateKnockPreferences({
+        categories: {
+          "seat-claims": { channel_types: { in_app_feed: false } },
+          "discussion-replies": true,
+        },
+      })
+    ).toEqual({
+      "seat-claims": false,
+      "discussion-replies": true,
+    });
+  });
+
+  it("treats a category whose feed channel the vendor never reported as absent, not off", () => {
+    const preferences = translateKnockPreferences({
+      categories: {
+        "refund-request-updates": { channel_types: { in_app_feed: true } },
+        "open-refund-requests": { channel_types: {} },
+        "seat-claims": {},
+        enrollments: undefined,
+      },
+    });
+
+    expect(preferences).toEqual({ "refund-request-updates": true });
+  });
+
+  it("treats a non-boolean feed-channel value as absent too", () => {
+    expect(
+      translateKnockPreferences({
+        categories: {
+          enrollments: { channel_types: { in_app_feed: "on" } },
+        },
+      })
+    ).toEqual({});
+  });
+
+  it("reads a set the vendor would not return as empty", () => {
+    expect(translateKnockPreferences(null)).toEqual({});
   });
 });
 

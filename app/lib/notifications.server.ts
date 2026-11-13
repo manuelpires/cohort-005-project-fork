@@ -111,6 +111,41 @@ const KNOCK_CATEGORY_KEYS: Record<NotificationCategoryId, string> = {
 
 const KNOCK_FEED_CHANNEL_TYPE = "in_app_feed";
 
+// A vendor preference set as its read API returns it: each category is
+// either a single boolean or a per-channel map.
+type KnockPreferenceSet = {
+  categories?: Record<
+    string,
+    boolean | { channel_types?: Record<string, unknown> } | undefined
+  >;
+};
+
+// The adapter's read-side translation. A category whose feed-channel value
+// the vendor never reported is left absent — never mapped to false — so the
+// settings card's read-merge-write falls back to the default set's value
+// for that category instead of persisting an explicit off nobody chose.
+// Exported for tests.
+export function translateKnockPreferences(
+  set: KnockPreferenceSet | null
+): NotificationPreferences {
+  const preferences: NotificationPreferences = {};
+  for (const category of Object.keys(
+    KNOCK_CATEGORY_KEYS
+  ) as NotificationCategoryId[]) {
+    const setting = set?.categories?.[KNOCK_CATEGORY_KEYS[category]];
+    if (setting === undefined) continue;
+    if (typeof setting === "boolean") {
+      preferences[category] = setting;
+      continue;
+    }
+    const channelSetting = setting.channel_types?.[KNOCK_FEED_CHANNEL_TYPE];
+    if (typeof channelSetting === "boolean") {
+      preferences[category] = channelSetting;
+    }
+  }
+  return preferences;
+}
+
 const KNOCK_WORKFLOW_KEYS: Record<NotificationWorkflowKey, string> = {
   "refund-request-raised": "refund-request-raised",
   "refund-request-open": "refund-request-open",
@@ -147,22 +182,7 @@ export function knockNotifications(secretKey: string): NotificationsPort {
       const set = await knock.users
         .getPreferences(String(userId), "default")
         .catch(() => null);
-      const preferences: NotificationPreferences = {};
-      for (const category of Object.keys(
-        KNOCK_CATEGORY_KEYS
-      ) as NotificationCategoryId[]) {
-        const setting = set?.categories?.[KNOCK_CATEGORY_KEYS[category]];
-        if (setting === undefined) continue;
-        if (typeof setting === "boolean") {
-          preferences[category] = setting;
-          continue;
-        }
-        const channelSetting = setting.channel_types?.[
-          KNOCK_FEED_CHANNEL_TYPE
-        ];
-        preferences[category] =
-          typeof channelSetting === "boolean" ? channelSetting : false;
-      }
+      const preferences = translateKnockPreferences(set);
       return Object.keys(preferences).length > 0 ? preferences : null;
     },
     async setPreferences(userId, preferences) {
