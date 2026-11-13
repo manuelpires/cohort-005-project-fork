@@ -95,7 +95,7 @@ describe("describeNotification", () => {
       )
     ).toEqual({
       category: "refund",
-      title: "Maria Chen requested a $149.00 refund",
+      title: "Maria Chen requested a $149.00 refund on Total TypeScript",
       snippet: "“Bought the wrong course by mistake.”",
     });
   });
@@ -192,7 +192,7 @@ describe("describeNotification", () => {
       )
     ).toEqual({
       category: "team",
-      title: "Maria Chen claimed a Seat",
+      title: "Maria Chen claimed a Seat in Total TypeScript",
       snippet: "3 Seats left",
     });
   });

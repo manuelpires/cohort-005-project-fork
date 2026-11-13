@@ -149,7 +149,9 @@ export function describeNotification(
     case "open-refund-request":
       return {
         category: "refund",
-        title: `${actor} requested a ${data.amount} refund`,
+        title: `${actor} requested a ${data.amount} refund on ${
+          text(data.courseTitle) ?? "a course"
+        }`,
         snippet: quoted(text(data.reason)),
       };
     case "refund-request-approved":
@@ -182,7 +184,9 @@ export function describeNotification(
   if (item.workflow === "seat-claimed") {
     return {
       category: "team",
-      title: `${actor} claimed a Seat`,
+      title: `${actor} claimed a Seat in ${
+        text(data.courseTitle) ?? "your course"
+      }`,
       snippet: `${data.seatsLeft} Seats left`,
     };
   }
