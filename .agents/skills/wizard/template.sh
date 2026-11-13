@@ -127,7 +127,9 @@ ask_secret() {
   else
     printf '  %s%s%s ' "$BOLD" "$prompt" "$RESET"
   fi
-  read -rs input || rc=1
+  # -e (Readline) avoids the ~1K canonical-mode tty cap that silently drops
+  # long pastes (e.g. Base64 signing keys); -s still hides the input.
+  read -e -rs input || rc=1
   printf '\n'
   if (( rc )) && [[ -z "$input" ]]; then return 1; fi
   [[ -z "$input" && -n "$current" ]] && input="$current"
