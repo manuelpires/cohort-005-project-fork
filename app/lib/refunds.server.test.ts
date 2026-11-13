@@ -538,7 +538,7 @@ describe("refund notifications", () => {
     if (!confirmation) throw new Error("No confirmation notification");
     expect(confirmation).toMatchObject({
       workflow: "refund-request-raised",
-      recipientIds: [base.user.id],
+      recipients: [{ id: base.user.id }],
       idempotencyKey: `refund-raised:${result.refundRequestId}`,
     });
     expect(confirmation.data).toEqual({
@@ -548,7 +548,7 @@ describe("refund notifications", () => {
       amount: "$79.00",
       url: null,
     });
-    expect(confirmation).not.toHaveProperty("actorId");
+    expect(confirmation).not.toHaveProperty("actor");
   });
 
   it("tells every Platform Admin who asked, for what and why", async () => {
@@ -578,11 +578,14 @@ describe("refund notifications", () => {
       (trigger) => trigger.workflow === "refund-request-open"
     );
     expect(open).toMatchObject({
-      recipientIds: expect.arrayContaining([platformAdmin.id, anotherAdmin.id]),
-      actorId: base.user.id,
+      recipients: [
+        { id: platformAdmin.id },
+        { id: anotherAdmin.id },
+      ],
+      actor: { id: base.user.id },
       idempotencyKey: `refund-open:${result.refundRequestId}`,
     });
-    expect(open?.recipientIds).toHaveLength(2);
+    expect(open?.recipients).toHaveLength(2);
     expect(open?.data).toEqual({
       kind: "open-refund-request",
       refundRequestId: result.refundRequestId,
@@ -630,7 +633,7 @@ describe("refund notifications", () => {
 
     const [firstOpen, secondOpen] = notifications.triggers
       .filter((trigger) => trigger.workflow === "refund-request-open")
-      .map((trigger) => trigger.recipientIds);
+      .map((trigger) => trigger.recipients.map((recipient) => recipient.id));
     expect(firstOpen).toEqual([platformAdmin.id]);
     expect(secondOpen).toEqual(
       expect.arrayContaining([platformAdmin.id, promoted.id])
@@ -646,6 +649,9 @@ describe("refund notifications", () => {
       },
       async setPreferences() {},
       async trigger() {
+        throw new Error("Knock is down");
+      },
+      async archiveCommentNotifications() {
         throw new Error("Knock is down");
       },
     };
@@ -684,8 +690,8 @@ describe("refund notifications", () => {
     const [approved] = notifications.triggers;
     expect(approved).toMatchObject({
       workflow: "refund-request-approved",
-      recipientIds: [base.user.id],
-      actorId: platformAdmin.id,
+      recipients: [{ id: base.user.id }],
+      actor: { id: platformAdmin.id },
       idempotencyKey: `refund-approved:${id}`,
     });
     expect(approved.data).toEqual({
@@ -717,8 +723,8 @@ describe("refund notifications", () => {
     const [declined] = notifications.triggers;
     expect(declined).toMatchObject({
       workflow: "refund-request-declined",
-      recipientIds: [base.user.id],
-      actorId: platformAdmin.id,
+      recipients: [{ id: base.user.id }],
+      actor: { id: platformAdmin.id },
       idempotencyKey: `refund-declined:${id}`,
     });
     expect(declined.data).toEqual({
@@ -740,6 +746,9 @@ describe("refund notifications", () => {
       },
       async setPreferences() {},
       async trigger() {
+        throw new Error("Knock is down");
+      },
+      async archiveCommentNotifications() {
         throw new Error("Knock is down");
       },
     };

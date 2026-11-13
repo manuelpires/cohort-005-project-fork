@@ -40,24 +40,25 @@ export type NotificationUser = {
   avatarUrl: string | null;
 };
 
-// The workflows of the Notification catalogue, in Cadence's vocabulary. The
-// Knock adapter maps these to the vendor's workflow keys; no other code
-// knows what the vendor calls them.
-export type NotificationWorkflow =
+// Workflow keys are deterministic and identical in the vendor (see
+// scripts/provision-knock-workflows.ts).
+export type NotificationWorkflowKey =
   | "refund-request-raised"
+  | "refund-request-open"
   | "refund-request-approved"
   | "refund-request-declined"
-  | "refund-request-open";
+  | "discussion-question-created"
+  | "discussion-reply-created";
 
 export type NotificationTrigger = {
-  workflow: NotificationWorkflow;
-  recipientIds: number[];
-  // Omitted for Notifications Cadence itself sends (the Refund Request
-  // confirmation): they render with a Cadence avatar, not a person's.
-  actorId?: number;
+  workflow: NotificationWorkflowKey;
+  /** The people the Notification concerns — never the actor themselves. */
+  recipients: NotificationUser[];
+  /** The person whose action caused the Notification, if there was one. */
+  actor?: NotificationUser;
+  /** Carried on the message; the feed renders from it. */
   data: Record<string, unknown>;
-  // One per domain event (e.g. "refund-approved:<refundRequestId>"), so a
-  // retry layer added later cannot send duplicates.
+  /** One per domain event, so a retry layer added later cannot send duplicates. */
   idempotencyKey: string;
 };
 
@@ -68,7 +69,9 @@ export interface NotificationsPort {
     userId: number,
     preferences: NotificationPreferences
   ): Promise<void>;
-  trigger(notification: NotificationTrigger): Promise<void>;
+  trigger(input: NotificationTrigger): Promise<void>;
+  /** Archives every Notification a comment caused, removing it from feeds. */
+  archiveCommentNotifications(commentId: number): Promise<void>;
 }
 
 // ─── Knock adapter ───
@@ -89,12 +92,25 @@ const KNOCK_CATEGORY_KEYS: Record<NotificationCategoryId, string> = {
 
 const KNOCK_FEED_CHANNEL_TYPE = "in_app_feed";
 
-const KNOCK_WORKFLOW_KEYS: Record<NotificationWorkflow, string> = {
+const KNOCK_WORKFLOW_KEYS: Record<NotificationWorkflowKey, string> = {
   "refund-request-raised": "refund-request-raised",
+  "refund-request-open": "refund-request-open",
   "refund-request-approved": "refund-request-approved",
   "refund-request-declined": "refund-request-declined",
-  "refund-request-open": "refund-request-open",
+  "discussion-question-created": "discussion-question-created",
+  "discussion-reply-created": "discussion-reply-created",
 };
+
+// Inline identify: upserts the user, so a trigger never fails on a user the
+// sync missed (name/email/avatar are the vendor's standard properties).
+function knockRecipient(user: NotificationUser) {
+  return {
+    id: String(user.id),
+    name: user.name,
+    email: user.email,
+    avatar: user.avatarUrl,
+  };
+}
 
 export function knockNotifications(secretKey: string): NotificationsPort {
   const knock = new Knock({ apiKey: secretKey });
@@ -120,7 +136,9 @@ export function knockNotifications(secretKey: string): NotificationsPort {
           preferences[category] = setting;
           continue;
         }
-        const channelSetting = setting.channel_types?.[KNOCK_FEED_CHANNEL_TYPE];
+        const channelSetting = setting.channel_types?.[
+          KNOCK_FEED_CHANNEL_TYPE
+        ];
         preferences[category] =
           typeof channelSetting === "boolean" ? channelSetting : false;
       }
@@ -141,26 +159,48 @@ export function knockNotifications(secretKey: string): NotificationsPort {
         categories,
       });
     },
-    async trigger(notification) {
+    async trigger(input) {
       await knock.workflows.trigger(
-        KNOCK_WORKFLOW_KEYS[notification.workflow],
+        KNOCK_WORKFLOW_KEYS[input.workflow],
         {
-          recipients: notification.recipientIds.map(String),
-          actor:
-            notification.actorId !== undefined
-              ? String(notification.actorId)
-              : undefined,
-          data: notification.data,
+          recipients: input.recipients.map(knockRecipient),
+          actor: input.actor ? knockRecipient(input.actor) : null,
+          data: input.data,
         },
         // The vendor dedupes on this header, so the per-domain-event key
         // makes retried triggers safe.
-        { idempotencyKey: notification.idempotencyKey }
+        { idempotencyKey: input.idempotencyKey }
       );
+    },
+    async archiveCommentNotifications(commentId) {
+      // Verified against the dev environment: the trigger-data filter scopes
+      // the listing to the messages this comment caused, across both
+      // discussion workflows. Archived messages stay in the listing, so skip
+      // the ones already archived.
+      const messages = knock.messages.list({
+        trigger_data: JSON.stringify({ commentId }),
+      });
+      for await (const message of messages) {
+        if (message.archived_at === null) {
+          await knock.messages.archive(message.id);
+        }
+      }
     },
   };
 }
 
 // ─── In-memory fake (tests) and no-op (keyless dev) ───
+
+// One feed row per recipient, mirroring what the vendor stores: the data
+// snapshot from trigger time and whether the row has been archived out of
+// the feed.
+export type FakeNotificationMessage = {
+  id: string;
+  workflow: NotificationWorkflowKey;
+  recipientId: number;
+  data: Record<string, unknown>;
+  archivedAt: Date | null;
+};
 
 export class FakeNotifications implements NotificationsPort {
   readonly users = new Map<number, NotificationUser>();
@@ -170,6 +210,8 @@ export class FakeNotifications implements NotificationsPort {
     preferences: NotificationPreferences;
   }> = [];
   readonly triggers: NotificationTrigger[] = [];
+  readonly messages: FakeNotificationMessage[] = [];
+  private nextMessageId = 1;
 
   async identifyUser(user: NotificationUser): Promise<void> {
     this.users.set(user.id, user);
@@ -189,11 +231,40 @@ export class FakeNotifications implements NotificationsPort {
     this.preferenceWrites.push({ userId, preferences: { ...preferences } });
   }
 
-  async trigger(notification: NotificationTrigger): Promise<void> {
+  async trigger(input: NotificationTrigger): Promise<void> {
     this.triggers.push({
-      ...notification,
-      data: { ...notification.data },
+      ...input,
+      recipients: [...input.recipients],
+      data: { ...input.data },
     });
+    for (const recipient of input.recipients) {
+      this.messages.push({
+        id: `fake-message-${this.nextMessageId++}`,
+        workflow: input.workflow,
+        recipientId: recipient.id,
+        data: { ...input.data },
+        archivedAt: null,
+      });
+    }
+  }
+
+  async archiveCommentNotifications(commentId: number): Promise<void> {
+    for (const message of this.messages) {
+      if (
+        message.data.commentId === commentId &&
+        message.archivedAt === null
+      ) {
+        message.archivedAt = new Date();
+      }
+    }
+  }
+
+  /** What the recipient's feed shows: their unarchived Notifications. */
+  messagesFor(recipientId: number): FakeNotificationMessage[] {
+    return this.messages.filter(
+      (message) =>
+        message.recipientId === recipientId && message.archivedAt === null
+    );
   }
 }
 
@@ -209,10 +280,11 @@ export function noopNotifications(): NotificationsPort {
     },
     async setPreferences() {},
     async trigger() {},
+    async archiveCommentNotifications() {},
   };
 }
 
-// ─── Default selection and user sync ───
+// ─── Default selection, user sync and best-effort triggers ───
 
 function knockSecretKey(): string | undefined {
   if (!process.env.KNOCK_SECRET_API_KEY) {
@@ -227,32 +299,9 @@ function knockSecretKey(): string | undefined {
   return process.env.KNOCK_SECRET_API_KEY || undefined;
 }
 
-function defaultPort(): NotificationsPort {
+export function defaultNotificationsPort(): NotificationsPort {
   const secretKey = knockSecretKey();
   return secretKey ? knockNotifications(secretKey) : noopNotifications();
-}
-
-// The port prod callers get when they pass none: Knock behind the secret
-// key, or the no-op adapter when dev runs keyless.
-export function defaultNotificationsPort(): NotificationsPort {
-  return defaultPort();
-}
-
-// Triggers a Notification through the port. Deliberately best-effort, like
-// a failed sync: the error is caught and logged so a vendor outage can never
-// fail the domain action around it.
-export async function triggerNotification(
-  notification: NotificationTrigger,
-  port: NotificationsPort = defaultPort()
-): Promise<void> {
-  try {
-    await port.trigger(notification);
-  } catch (error) {
-    console.error(
-      `Notification trigger failed (${notification.workflow}):`,
-      error
-    );
-  }
 }
 
 // Identifies a Cadence user to the notification vendor (name, email, avatar
@@ -263,15 +312,46 @@ export async function triggerNotification(
 // it must never fail the action around it.
 export async function syncNotificationsUser(
   user: NotificationUser,
-  port: NotificationsPort = defaultPort()
+  port: NotificationsPort = defaultNotificationsPort()
 ): Promise<void> {
   try {
     await port.identifyUser(user);
     const existing = await port.getPreferences(user.id);
     if (existing === null) {
-      await port.setPreferences(user.id, DEFAULT_NOTIFICATION_PREFERENCES);
+      await port.setPreferences(
+        user.id,
+        DEFAULT_NOTIFICATION_PREFERENCES
+      );
     }
   } catch (error) {
     console.error(`Notification sync failed for user ${user.id}:`, error);
+  }
+}
+
+// Triggers are best-effort and run after the domain write commits: a vendor
+// outage is caught and logged, never failing the domain action around it.
+export async function triggerNotification(
+  input: NotificationTrigger,
+  port: NotificationsPort = defaultNotificationsPort()
+): Promise<void> {
+  try {
+    await port.trigger(input);
+  } catch (error) {
+    console.error(`Notification trigger failed (${input.workflow}):`, error);
+  }
+}
+
+// Archiving is best-effort for the same reason as triggering.
+export async function archiveCommentNotifications(
+  commentId: number,
+  port: NotificationsPort = defaultNotificationsPort()
+): Promise<void> {
+  try {
+    await port.archiveCommentNotifications(commentId);
+  } catch (error) {
+    console.error(
+      `Notification archive failed for comment ${commentId}:`,
+      error
+    );
   }
 }

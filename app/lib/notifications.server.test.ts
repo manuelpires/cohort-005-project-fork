@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
+  archiveCommentNotifications,
   fakeNotifications,
   syncNotificationsUser,
   triggerNotification,
@@ -14,41 +15,25 @@ const USER = {
   avatarUrl: "https://api.dicebear.com/9.x/avataaars/svg?seed=emma",
 };
 
-const TRIGGER = {
-  workflow: "refund-request-raised" as const,
-  recipientIds: [USER.id],
-  data: { kind: "refund-request-confirmed" },
-  idempotencyKey: "refund-raised:1",
-};
-
-describe("triggerNotification", () => {
-  it("records the trigger through the fake port", async () => {
-    const notifications = fakeNotifications();
-
-    await triggerNotification(TRIGGER, notifications);
-
-    expect(notifications.triggers).toEqual([TRIGGER]);
-  });
-
-  it("logs and swallows a failing trigger instead of throwing", async () => {
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const port: NotificationsPort = {
-      async identifyUser() {},
-      async getPreferences() {
-        return null;
-      },
-      async setPreferences() {},
-      async trigger() {
-        throw new Error("Knock is down");
-      },
-    };
-
-    await expect(triggerNotification(TRIGGER, port)).resolves.toBeUndefined();
-
-    expect(logged).toHaveBeenCalledTimes(1);
-    logged.mockRestore();
-  });
-});
+function throwingPort(): NotificationsPort {
+  return {
+    async identifyUser() {
+      throw new Error("Knock rejected the key");
+    },
+    async getPreferences() {
+      throw new Error("Knock rejected the key");
+    },
+    async setPreferences() {
+      throw new Error("Knock rejected the key");
+    },
+    async trigger() {
+      throw new Error("Knock rejected the key");
+    },
+    async archiveCommentNotifications() {
+      throw new Error("Knock rejected the key");
+    },
+  };
+}
 
 describe("syncNotificationsUser", () => {
   it("identifies the user to the vendor with name, email and avatar", async () => {
@@ -84,22 +69,99 @@ describe("syncNotificationsUser", () => {
 
   it("logs and swallows a failing sync instead of throwing", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const port: NotificationsPort = {
-      async identifyUser() {
-        throw new Error("Knock rejected the key");
-      },
-      async getPreferences() {
-        throw new Error("Knock rejected the key");
-      },
-      async setPreferences() {
-        throw new Error("Knock rejected the key");
-      },
-      async trigger() {
-        throw new Error("Knock rejected the key");
-      },
+
+    await expect(
+      syncNotificationsUser(USER, throwingPort())
+    ).resolves.toBeUndefined();
+
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+  });
+});
+
+describe("triggerNotification", () => {
+  it("records the trigger through the fake port", async () => {
+    const notifications = fakeNotifications();
+    const trigger = {
+      workflow: "refund-request-raised" as const,
+      recipients: [USER],
+      data: { kind: "refund-request-confirmed" },
+      idempotencyKey: "refund-raised:1",
     };
 
-    await expect(syncNotificationsUser(USER, port)).resolves.toBeUndefined();
+    await triggerNotification(trigger, notifications);
+
+    expect(notifications.triggers).toEqual([trigger]);
+  });
+
+  it("records a discussion trigger and lands it in the feed", async () => {
+    const notifications = fakeNotifications();
+
+    await triggerNotification(
+      {
+        workflow: "discussion-question-created",
+        recipients: [USER],
+        actor: USER,
+        data: { commentId: 7 },
+        idempotencyKey: "discussion-question-created:7",
+      },
+      notifications
+    );
+
+    expect(notifications.triggers).toHaveLength(1);
+    expect(notifications.messagesFor(USER.id)).toHaveLength(1);
+  });
+
+  it("logs and swallows a failing trigger instead of throwing", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      triggerNotification(
+        {
+          workflow: "discussion-reply-created",
+          recipients: [USER],
+          data: { commentId: 8 },
+          idempotencyKey: "discussion-reply-created:8",
+        },
+        throwingPort()
+      )
+    ).resolves.toBeUndefined();
+
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+  });
+});
+
+describe("archiveCommentNotifications", () => {
+  it("archives only the messages the comment caused", async () => {
+    const notifications = fakeNotifications();
+    await notifications.trigger({
+      workflow: "discussion-question-created",
+      recipients: [USER],
+      data: { commentId: 7 },
+      idempotencyKey: "discussion-question-created:7",
+    });
+    await notifications.trigger({
+      workflow: "discussion-reply-created",
+      recipients: [USER],
+      data: { commentId: 8 },
+      idempotencyKey: "discussion-reply-created:8",
+    });
+
+    await archiveCommentNotifications(7, notifications);
+
+    expect(notifications.messagesFor(USER.id)).toHaveLength(1);
+    expect(notifications.messagesFor(USER.id)[0].workflow).toBe(
+      "discussion-reply-created"
+    );
+  });
+
+  it("logs and swallows a failing archive instead of throwing", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      archiveCommentNotifications(7, throwingPort())
+    ).resolves.toBeUndefined();
 
     expect(logged).toHaveBeenCalledTimes(1);
     logged.mockRestore();

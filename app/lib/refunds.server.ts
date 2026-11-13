@@ -275,14 +275,19 @@ function findRuleBreaks(
 // "Every Platform Admin" is resolved at trigger time by querying Cadence,
 // never synced to the vendor: a newly promoted admin therefore receives
 // only requests raised after the promotion. The role query lives here so
-// the recipient list is always fresh.
-function getPlatformAdminIds(db: Queryable): number[] {
+// the recipient list is always fresh. Recipients travel as full user
+// objects — the port inline-identifies them to the vendor.
+function getPlatformAdmins(db: Queryable): (typeof users.$inferSelect)[] {
   return db
-    .select({ id: users.id })
+    .select()
     .from(users)
     .where(eq(users.role, UserRole.Admin))
-    .all()
-    .map((row) => row.id);
+    .all();
+}
+
+function getUser(db: Queryable, id: number | null) {
+  if (id === null) return undefined;
+  return db.select().from(users).where(eq(users.id, id)).get();
 }
 
 // What a decision Notification needs, read back after the decision commits.
@@ -322,14 +327,17 @@ async function notifyRefundDecision(
   const facts = getRefundDecisionFacts(db, refundRequestId);
   if (!facts) return;
 
+  const buyer = getUser(db, facts.buyerId);
+  if (!buyer) return;
+
   await triggerNotification(
     {
       workflow:
         decision === "approved"
           ? "refund-request-approved"
           : "refund-request-declined",
-      recipientIds: [facts.buyerId],
-      actorId: facts.resolvedByUserId ?? undefined,
+      recipients: [buyer],
+      actor: getUser(db, facts.resolvedByUserId),
       data: {
         kind:
           decision === "approved"
@@ -488,7 +496,7 @@ export async function raiseRefundRequest(
   await triggerNotification(
     {
       workflow: "refund-request-raised",
-      recipientIds: [buyerId],
+      recipients: [buyer],
       data: {
         kind: "refund-request-confirmed",
         refundRequestId: refundRequest.id,
@@ -501,13 +509,13 @@ export async function raiseRefundRequest(
     notifications
   );
 
-  const platformAdminIds = getPlatformAdminIds(db);
-  if (platformAdminIds.length > 0) {
+  const platformAdmins = getPlatformAdmins(db);
+  if (platformAdmins.length > 0) {
     await triggerNotification(
       {
         workflow: "refund-request-open",
-        recipientIds: platformAdminIds,
-        actorId: buyerId,
+        recipients: platformAdmins,
+        actor: buyer,
         data: {
           kind: "open-refund-request",
           refundRequestId: refundRequest.id,

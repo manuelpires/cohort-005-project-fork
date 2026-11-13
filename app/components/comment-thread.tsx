@@ -210,7 +210,9 @@ function CommentItem({
 
   if (comment.deleted) {
     return (
-      <div className="py-3">
+      // The anchor id survives deletion: Reply Notifications under a deleted
+      // question still click through to the replies, which stay visible.
+      <div id={`comment-${comment.id}`} className="py-3">
         <p className="text-sm italic text-muted-foreground">
           This comment was deleted.
         </p>
@@ -225,7 +227,10 @@ function CommentItem({
   }
 
   return (
-    <div className={cn("py-3", isReply && "border-l pl-4")}>
+    <div
+      id={`comment-${comment.id}`}
+      className={cn("py-3 scroll-mt-20", isReply && "border-l pl-4")}
+    >
       <div className="flex items-start gap-3">
         <UserAvatar
           name={comment.author.name}

@@ -152,7 +152,7 @@ export async function action({ request }: Route.ActionArgs) {
   // instructor, or an admin.
   const access = await requireStaff(request, course.courseId);
 
-  const result = createComment(
+  const result = await createComment(
     db,
     access.userId!,
     question.lessonId,
