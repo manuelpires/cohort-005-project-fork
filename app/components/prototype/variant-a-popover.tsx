@@ -65,7 +65,7 @@ export function VariantAPopover({ feed }: { feed: Feed }) {
       </button>
 
       {open && (
-        <div className="fixed bottom-24 left-[14.5rem] z-40 flex max-h-[28rem] w-[24rem] flex-col overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg">
+        <div className="fixed left-[14.5rem] top-[4.25rem] z-40 flex max-h-[28rem] w-[24rem] flex-col overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <span className="text-sm font-semibold">
               Notifications

@@ -317,7 +317,7 @@ function PrototypeApp({
   return (
     <div className="flex h-screen overflow-hidden">
       {variant === "A" && (
-        <ProtoSidebar currentUser={currentUser} isTeamAdmin={isTeamAdmin} bellSlot="footer">
+        <ProtoSidebar currentUser={currentUser} isTeamAdmin={isTeamAdmin} bellSlot="header">
           <VariantAPopover feed={feed} />
         </ProtoSidebar>
       )}
