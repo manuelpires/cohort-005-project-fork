@@ -1,4 +1,4 @@
-import Knock from "@knocklabs/node";
+import Knock, { signUserToken } from "@knocklabs/node";
 
 // ─── Notification server port ───
 // Knock delivers Notifications when KNOCK_SECRET_API_KEY is set. Without
@@ -365,6 +365,25 @@ export function knockEnv(name: string): string | undefined {
 
 function knockSecretKey(): string | undefined {
   return knockEnv("KNOCK_SECRET_API_KEY");
+}
+
+// Signs the per-user feed token (RS256), adapter-side: the signing key and
+// the SDK's token shape are vendor concerns, so no code outside this module
+// touches them — the feed config (notifications-feed.server.ts) asks here.
+// Bounded so a token minted for one DevUI user goes stale quickly; the
+// socket re-authentication refreshes within this window. Undefined when the
+// signing key is missing: keyless dev runs the feed on the empty adapter.
+const FEED_TOKEN_EXPIRY_SECONDS = 60 * 60;
+
+export async function signFeedUserToken(
+  userId: number
+): Promise<string | undefined> {
+  const signingKey = knockEnv("KNOCK_SIGNING_KEY");
+  if (!signingKey) return undefined;
+  return signUserToken(String(userId), {
+    signingKey,
+    expiresInSeconds: FEED_TOKEN_EXPIRY_SECONDS,
+  });
 }
 
 // The port services use when no test injects one: the Knock adapter when the
