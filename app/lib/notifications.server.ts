@@ -111,13 +111,19 @@ const KNOCK_CATEGORY_KEYS: Record<NotificationCategoryId, string> = {
 
 const KNOCK_FEED_CHANNEL_TYPE = "in_app_feed";
 
-// A vendor preference set as its read API returns it: each category is
-// either a single boolean or a per-channel map.
+// A vendor preference set as its read API returns it, typed by only what
+// the translation reads: each category is either a single boolean or a
+// per-channel map, and the vendor also uses null for "not set" at either
+// level.
 type KnockPreferenceSet = {
-  categories?: Record<
-    string,
-    boolean | { channel_types?: Record<string, unknown> } | undefined
-  >;
+  categories?:
+    | Record<
+        string,
+        | boolean
+        | { channel_types?: { in_app_feed?: unknown } | null }
+        | undefined
+      >
+    | null;
 };
 
 // The adapter's read-side translation. A category whose feed-channel value
