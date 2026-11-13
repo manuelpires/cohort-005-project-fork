@@ -12,6 +12,7 @@ import {
 import { validateCommentBody } from "~/lib/comments";
 import {
   createComment,
+  deleteComment,
   getCommentById,
   getCourseForLesson,
 } from "~/lib/comments.server";
@@ -395,26 +396,6 @@ function updateComment(commentId: number, userId: number, body: string) {
   return db
     .update(comments)
     .set({ body: trimmed, editedAt: new Date().toISOString() })
-    .where(eq(comments.id, commentId))
-    .returning()
-    .get();
-}
-
-function deleteComment(commentId: number, userId: number, isStaff: boolean) {
-  const existing = getCommentById(db, commentId);
-  if (!existing) {
-    throw new Error("Comment not found");
-  }
-  if (existing.userId !== userId && !isStaff) {
-    throw new Error("You can only delete your own comments");
-  }
-  if (existing.deletedAt !== null) {
-    return existing;
-  }
-
-  return db
-    .update(comments)
-    .set({ deletedAt: new Date().toISOString() })
     .where(eq(comments.id, commentId))
     .returning()
     .get();
@@ -844,7 +825,7 @@ export async function action({ params, request }: Route.ActionArgs) {
         if (!parsed.success) {
           return { ok: false, error: "Enter a comment before posting." };
         }
-        const result = createComment(
+        const result = await createComment(
           db,
           currentUserId,
           lessonId,
@@ -881,7 +862,16 @@ export async function action({ params, request }: Route.ActionArgs) {
       if (!existing || existing.lessonId !== lessonId) {
         throw data("Comment not found", { status: 404 });
       }
-      deleteComment(parsed.data.commentId, currentUserId, access.isStaff);
+      const deleted = await deleteComment(
+        db,
+        parsed.data.commentId,
+        currentUserId,
+        access.isStaff,
+        new Date()
+      );
+      if (!deleted.ok) {
+        return { ok: false, error: deleted.error };
+      }
       return { ok: true };
     } catch (error) {
       // Service validation failures are user-correctable; anything thrown as a
