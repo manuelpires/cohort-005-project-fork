@@ -119,7 +119,8 @@ export async function action({ request }: Route.ActionArgs) {
         refundRequestId,
         platformAdmin.id,
         note,
-        new Date()
+        new Date(),
+        defaultNotificationsPort()
       ));
 
   if (!result.ok) {

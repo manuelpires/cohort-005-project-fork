@@ -422,7 +422,14 @@ describe("approving a Refund Request", () => {
     );
 
     expect(
-      declineRefundRequest(db, id, platformAdmin.id, "Too late.", NOW)
+      await declineRefundRequest(
+        db,
+        id,
+        platformAdmin.id,
+        "Too late.",
+        NOW,
+        noopNotifications()
+      )
     ).toMatchObject({
       ok: false,
       status: 409,
@@ -456,7 +463,14 @@ describe("declining a Refund Request", () => {
     const id = await raise(purchase.id, base.user.id);
 
     expect(
-      declineRefundRequest(db, id, platformAdmin.id, "  ", NOW)
+      await declineRefundRequest(
+        db,
+        id,
+        platformAdmin.id,
+        "  ",
+        NOW,
+        noopNotifications()
+      )
     ).toMatchObject({
       ok: false,
       status: 400,
@@ -467,12 +481,13 @@ describe("declining a Refund Request", () => {
     const purchase = buyForSelf(base.user.id);
     const id = await raise(purchase.id, base.user.id);
 
-    const result = declineRefundRequest(
+    const result = await declineRefundRequest(
       db,
       id,
       platformAdmin.id,
       "You finished the course.",
-      NOW
+      NOW,
+      noopNotifications()
     );
 
     if (!result.ok) throw new Error(result.error);
@@ -489,7 +504,14 @@ describe("declining a Refund Request", () => {
     const id = await raise(purchase.id, priya.id);
     expect(getSeatAvailability(db, getSeat(seats[0].id))).toBe("on_hold");
 
-    declineRefundRequest(db, id, platformAdmin.id, "Seats are in use.", NOW);
+    await declineRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "Seats are in use.",
+      NOW,
+      noopNotifications()
+    );
 
     expect(getSeatAvailability(db, getSeat(seats[0].id))).toBe("available");
   });
@@ -675,6 +697,68 @@ describe("refund notifications", () => {
       url: "/settings",
     });
   });
+
+  it("notifies the buyer their Refund Request was declined, with the note", async () => {
+    const notifications = fakeNotifications();
+    const purchase = buyForSelf(base.user.id);
+    const id = await raise(purchase.id, base.user.id);
+
+    const result = await declineRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "You finished the course.",
+      NOW,
+      notifications
+    );
+
+    expect(result.ok).toBe(true);
+    expect(notifications.triggers).toHaveLength(1);
+    const [declined] = notifications.triggers;
+    expect(declined).toMatchObject({
+      workflow: "refund-request-declined",
+      recipientIds: [base.user.id],
+      actorId: platformAdmin.id,
+      idempotencyKey: `refund-declined:${id}`,
+    });
+    expect(declined.data).toEqual({
+      kind: "refund-request-declined",
+      refundRequestId: id,
+      courseTitle: "Test Course",
+      amount: "$79.00",
+      decisionNote: "You finished the course.",
+      url: "/settings",
+    });
+  });
+
+  it("never fails a decision when the notification adapter throws", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const throwing: NotificationsPort = {
+      async identifyUser() {},
+      async getPreferences() {
+        return null;
+      },
+      async setPreferences() {},
+      async trigger() {
+        throw new Error("Knock is down");
+      },
+    };
+    const purchase = buyForSelf(base.user.id);
+    const id = await raise(purchase.id, base.user.id);
+
+    const declined = await declineRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "You finished the course.",
+      NOW,
+      throwing
+    );
+
+    expect(declined.ok).toBe(true);
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
+  });
 });
 
 describe("listing Refund Requests", () => {
@@ -758,7 +842,14 @@ describe("listing Refund Requests", () => {
   it("shows a buyer their decided requests with the decline note", async () => {
     const purchase = buyForSelf(base.user.id);
     const id = await raise(purchase.id, base.user.id);
-    declineRefundRequest(db, id, platformAdmin.id, "Past half way.", NOW);
+    await declineRefundRequest(
+      db,
+      id,
+      platformAdmin.id,
+      "Past half way.",
+      NOW,
+      noopNotifications()
+    );
 
     expect(listRefundRequestsForBuyer(db, base.user.id)).toMatchObject([
       { id, status: RefundStatus.Declined, decisionNote: "Past half way." },

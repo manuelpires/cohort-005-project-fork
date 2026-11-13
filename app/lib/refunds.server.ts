@@ -833,13 +833,14 @@ export async function approveRefundRequest(
  * the buyer may raise a new Refund Request. The note is required: it is how
  * the buyer learns whether another request is worth raising.
  */
-export function declineRefundRequest(
+export async function declineRefundRequest(
   db: Db,
   refundRequestId: number,
   platformAdminId: number,
   note: string,
-  now: Date
-): DecisionResult {
+  now: Date,
+  notifications: NotificationsPort
+): Promise<DecisionResult> {
   const trimmedNote = note.trim();
 
   if (trimmedNote.length === 0) {
@@ -850,7 +851,7 @@ export function declineRefundRequest(
     };
   }
 
-  return db.transaction((tx): DecisionResult => {
+  const result = db.transaction((tx): DecisionResult => {
     const found = findOpenRefundRequest(tx, refundRequestId);
     if (!found.ok) return found;
 
@@ -874,6 +875,12 @@ export function declineRefundRequest(
       ),
     };
   });
+
+  if (result.ok) {
+    await notifyRefundDecision(db, refundRequestId, "declined", notifications);
+  }
+
+  return result;
 }
 
 /** The email the buyer gets once their Refund Request is decided. */
