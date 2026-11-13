@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -15,13 +15,31 @@ import { AlertTriangle } from "lucide-react";
 import { data, isRouteErrorResponse, Link } from "react-router";
 import { db } from "~/db";
 import { eq } from "drizzle-orm";
-import { formatPrice } from "~/lib/utils";
+import { cn, formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
-import { syncNotificationsUser } from "~/lib/notifications.server";
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  syncNotificationsUser,
+  type NotificationCategoryId,
+} from "~/lib/notifications.server";
+import {
+  getNotificationPreferenceRows,
+  mergeNotificationPreference,
+} from "~/lib/notification-preferences.server";
 
 const settingsSchema = z.object({
   name: z.string().trim().min(1, "Name cannot be empty."),
   bio: z.string().trim().optional(),
+});
+
+const NOTIFICATION_CATEGORY_KEYS = Object.keys(
+  DEFAULT_NOTIFICATION_PREFERENCES
+) as [NotificationCategoryId, ...NotificationCategoryId[]];
+
+const notificationPreferenceSchema = z.object({
+  intent: z.literal("notification-preference"),
+  category: z.enum(NOTIFICATION_CATEGORY_KEYS),
+  on: z.enum(["on", "off"]).transform((value) => value === "on"),
 });
 
 export function meta() {
@@ -52,6 +70,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const refundRequests = listRefundRequestsForBuyer(db, currentUserId);
 
+  const notificationPreferences = await getNotificationPreferenceRows(
+    db,
+    currentUserId
+  );
+
   return {
     user: {
       id: currentUser.id,
@@ -61,6 +84,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       role: currentUser.role,
     },
     refundRequests,
+    notificationPreferences,
   };
 }
 
@@ -81,6 +105,32 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const formData = await request.formData();
+
+  // One switch flip: merges the single change into the person's preference
+  // set. A vendor failure is returned as an error so the card can toast and
+  // revert — unlike sync and triggers, this save is the whole point of the
+  // action.
+  if (formData.get("intent") === "notification-preference") {
+    const parsed = parseFormData(formData, notificationPreferenceSchema);
+    if (!parsed.success) {
+      return data(
+        { error: "That notification preference isn't recognised." },
+        { status: 400 }
+      );
+    }
+    const { category, on } = parsed.data;
+    try {
+      await mergeNotificationPreference(currentUser.id, category, on);
+      return { success: true };
+    } catch (error) {
+      console.error("Notification preference save failed:", error);
+      return data(
+        { error: "Couldn't save that. Please try again." },
+        { status: 500 }
+      );
+    }
+  }
+
   const parsed = parseFormData(formData, settingsSchema);
 
   if (!parsed.success) {
@@ -101,7 +151,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { user, refundRequests } = loaderData;
+  const { user, refundRequests, notificationPreferences } = loaderData;
   const openCount = refundRequests.filter(
     (refundRequest) => refundRequest.status === RefundStatus.Open
   ).length;
@@ -191,6 +241,27 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         </CardContent>
       </Card>
 
+      <Card id="notifications" className="mt-8 max-w-md scroll-mt-6">
+        <CardHeader>
+          <h2 className="text-lg font-semibold">Notifications</h2>
+          <p className="text-sm text-muted-foreground">
+            Choose which Notifications arrive in your feed. Saves as you flip.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="divide-y">
+            {notificationPreferences.map((row) => (
+              <NotificationPreferenceRow
+                key={row.category}
+                category={row.category}
+                label={row.label}
+                enabled={row.enabled}
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {refundRequests.length > 0 && (
         <Card className="mt-8 max-w-md">
           <CardHeader>
@@ -242,8 +313,65 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   );
 }
 
-const REFUND_STATUS_BADGES: Record<
-  RefundStatus,
+// One row of the Notifications card: a switch that saves on flip, optimistically.
+// Each row carries its own fetcher, so flips on different rows never cancel each
+// other; a failed save toasts and falls back to the loader's truth.
+function NotificationPreferenceRow({
+  category,
+  label,
+  enabled,
+}: {
+  category: NotificationCategoryId;
+  label: string;
+  enabled: boolean;
+}) {
+  const fetcher = useFetcher<{ error?: string }>();
+  const [optimistic, setOptimistic] = useState<boolean | null>(null);
+  const on = optimistic ?? enabled;
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.error) {
+      toast.error(fetcher.data.error);
+      setOptimistic(null);
+    }
+  }, [fetcher.state, fetcher.data]);
+
+  function flip() {
+    const next = !on;
+    setOptimistic(next);
+    fetcher.submit(
+      { intent: "notification-preference", category, on: next ? "on" : "off" },
+      { method: "post" }
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-4 py-3">
+      <span className="text-sm font-medium">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        onClick={flip}
+        disabled={fetcher.state !== "idle"}
+        className={cn(
+          "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors disabled:opacity-60",
+          on ? "bg-primary" : "bg-input"
+        )}
+      >
+        <span
+          className={cn(
+            "pointer-events-none block size-4 rounded-full bg-background shadow transition-transform",
+            on ? "translate-x-4" : "translate-x-0.5"
+          )}
+        />
+      </button>
+    </div>
+  );
+}
+
+const REFUND_STATUS_BADGES: Record<  RefundStatus,
   { label: string; className: string }
 > = {
   [RefundStatus.Open]: {
