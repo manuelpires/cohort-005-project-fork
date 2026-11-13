@@ -10,6 +10,7 @@ import { Input } from "~/components/ui/input";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { db } from "~/db";
 import { eq } from "drizzle-orm";
+import { syncNotificationsUser } from "~/lib/notifications.server";
 
 const signupSchema = z.object({
   name: z.string().trim().min(1, "Name is required."),
@@ -79,6 +80,8 @@ export async function action({ request, url }: Route.ActionArgs) {
     .values({ name, email, role: UserRole.Student, avatarUrl: null })
     .returning()
     .get();
+  // Best-effort: a failing vendor sync is logged and swallowed inside.
+  await syncNotificationsUser(newUser);
   const cookie = await setCurrentUserId(request, newUser.id);
   throw redirect(destination, {
     headers: { "Set-Cookie": cookie },
