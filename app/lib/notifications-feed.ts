@@ -1,12 +1,13 @@
 // ─── Notification feed client port ───
 // The browser half of the notification vendor boundary: everything the feed
 // UI needs — listing the feed (cursor-paginated), unseen/unread counts,
-// marking seen/read singly and in bulk, and the connection lifecycle. The
-// Knock adapter below is the only code that speaks the vendor's REST shapes
-// from the browser (public key plus per-user signed token). Keyless dev
-// falls back to the empty adapter so the feed shows its empty state, the
-// way the app runs without a Postmark token. Tests inject the fake and
-// assert on what it recorded — nothing here touches the network under test.
+// marking seen/read singly and in bulk, live updates, and the connection
+// lifecycle. The Knock adapter below is the only code that speaks the
+// vendor's REST and real-time socket shapes from the browser (public key
+// plus per-user signed token). Keyless dev falls back to the empty adapter
+// so the feed shows its empty state, the way the app runs without a
+// Postmark token. Tests inject the fake and assert on what it recorded —
+// nothing here touches the network under test.
 //
 // Deliberately not named "*.client.ts": React Router's Vite plugin stubs
 // every export of a .client module to undefined during SSR, and the store
@@ -54,9 +55,9 @@ export interface NotificationFeedClient {
   markAllRead(): Promise<void>;
   /**
    * Live updates: the listener fires whenever the feed may have changed, so
-   * consumers re-read page one. The REST adapter never fires it — the live
-   * socket lands inside the adapter (see #58) without consumers changing.
-   * Returns an unsubscribe function.
+   * consumers re-read page one. The Knock adapter backs this with its
+   * real-time socket on the user's feed topic; the empty adapter (keyless
+   * dev) never fires it. Returns an unsubscribe function.
    */
   subscribe(listener: () => void): () => void;
   /** Releases the connection and any live subscription. */
@@ -278,7 +279,7 @@ export class FakeNotificationFeed implements NotificationFeedClient {
     return () => this.listeners.delete(listener);
   }
 
-  /** What the live socket (#58) will do from inside the adapter. */
+  /** What the adapter's live socket does on a feed event. */
   emitChange(): void {
     for (const listener of this.listeners) listener();
   }
@@ -321,6 +322,10 @@ export class NotificationFeedStore {
   private unread = 0;
   private loadingMore = false;
   private initialized = false;
+  // Coalescing state for refresh(): a read already in flight absorbs any
+  // refreshes requested meanwhile into one trailing read.
+  private refreshing = false;
+  private refreshQueued = false;
   private listeners = new Set<() => void>();
   private state: NotificationFeedState;
   private unsubscribeClient: () => void;
@@ -328,8 +333,9 @@ export class NotificationFeedStore {
   constructor(client: NotificationFeedClient) {
     this.client = client;
     this.state = this.computeState();
-    // The adapter's live callback re-reads page one, so the socket (#58)
-    // drives the badge and the open popover with no consumer changes.
+    // The adapter's live socket fires whenever the feed may have changed;
+    // the coalescing refresh re-reads page one, so the socket drives the
+    // badge and the open popover with no consumer changes.
     this.unsubscribeClient = client.subscribe(() => void this.refresh());
   }
 
@@ -370,8 +376,17 @@ export class NotificationFeedStore {
     return page;
   }
 
-  /** Re-reads page one plus counts — the mount load and the live refresh. */
+  /** Re-reads page one plus counts — the mount load and the live refresh.
+   * A read already in flight absorbs further refreshes into a single
+   * trailing read, so a burst of socket callbacks (the vendor throttles
+   * its events, but not to one) never becomes a burst of feed reads —
+   * the rate limit bites around 10 rapid reads. */
   async refresh(): Promise<void> {
+    if (this.refreshing) {
+      this.refreshQueued = true;
+      return;
+    }
+    this.refreshing = true;
     try {
       const page = await this.readPage();
       // The stored cursor stays where scrolling left it: page one's cursor
@@ -381,8 +396,13 @@ export class NotificationFeedStore {
     } catch (error) {
       console.error("Notification feed refresh failed:", error);
     } finally {
+      this.refreshing = false;
       this.initialized = true;
       this.emit();
+      if (this.refreshQueued) {
+        this.refreshQueued = false;
+        void this.refresh();
+      }
     }
   }
 
@@ -474,6 +494,258 @@ export type NotificationFeedClientConfig = {
 const KNOCK_API = "https://api.knock.app/v1";
 const PAGE_SIZE = 20;
 
+// ─── Real-time socket (the adapter's live half) ───
+// The vendor's realtime service speaks the Phoenix channel protocol
+// (vsn 2.0.0) over a WebSocket whose URL must be fetched first: POST
+// /v1/sockets/connect with the public key + user token returns a signed
+// wss:// URL. This is a hand-rolled minimal client for the one topic the
+// feed needs — the same wire protocol their browser SDK drives — so no
+// vendor package joins the dependency tree. Like the REST half, it is
+// untested by design: the transport is vendor-side; the port seam (via the
+// fake) specifies everything observable.
+//
+// Frame shape: [join_ref, ref, topic, event, payload] as JSON, with
+// control events phx_join / phx_leave / phx_reply — underscores on the
+// wire, unlike the client-side constants in Phoenix's own docs. Refs are
+// per-connection counting numbers as strings. The socket heartbeats every
+// 30s on the "phoenix" topic; an unanswered heartbeat means the connection
+// is dead, and it is re-established with backoff — except on an auth
+// rejection (a stale token only a page reload can re-sign), where retrying
+// would never heal.
+
+const PHOENIX_VSN = "2.0.0";
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const JOIN_TIMEOUT_MS = 10_000;
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+const SOCKET_TOPIC = "feeds:{feedChannelId}:{knockUserId}";
+
+type PhoenixFrame = [
+  joinRef: string | null,
+  ref: string | null,
+  topic: string,
+  event: string,
+  payload: unknown,
+];
+
+type KnockSocketConnectResponse = {
+  url?: unknown;
+  mode?: unknown;
+};
+
+function appendQueryString(url: string, queryString: string): string {
+  return queryString
+    ? `${url}${url.includes("?") ? "&" : "?"}${queryString}`
+    : url;
+}
+
+function reconnectDelay(attempt: number): number {
+  const cap = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+  // Full jitter, so many clients never retry in lockstep.
+  return Math.round(cap * Math.random());
+}
+
+function openKnockFeedSocket(
+  config: NotificationFeedClientConfig,
+  onFeedEvent: () => void
+): { close: () => void } {
+  const topic = SOCKET_TOPIC.replace("{feedChannelId}", config.feedChannelId)
+    .replace("{knockUserId}", config.knockUserId);
+  // The vendor addresses events to per-client reference ids (the "attn"
+  // field); with one feed client per socket any event on the topic is ours,
+  // but the join still names one so the server accepts it.
+  const clientReferenceId = `client_${Math.random().toString(36).slice(2)}`;
+
+  let closed = false;
+  let socket: WebSocket | null = null;
+  let nextRef = 0;
+  let joinRef: string | null = null;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingHeartbeatRef: string | null = null;
+  let joinTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempt = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function makeRef(): string {
+    nextRef += 1;
+    return String(nextRef);
+  }
+
+  function send(frame: PhoenixFrame): void {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
+  }
+
+  function stopHeartbeat(): void {
+    if (heartbeatTimer !== null) clearTimeout(heartbeatTimer);
+    heartbeatTimer = null;
+    pendingHeartbeatRef = null;
+  }
+
+  function scheduleHeartbeat(): void {
+    heartbeatTimer = setTimeout(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function sendHeartbeat(): void {
+    if (pendingHeartbeatRef !== null) {
+      // The last heartbeat went unanswered within its window: the
+      // connection is dead even though the browser has not noticed. Drop
+      // it so the reconnect path runs.
+      socket?.close();
+      return;
+    }
+    pendingHeartbeatRef = makeRef();
+    send([null, pendingHeartbeatRef, "phoenix", "heartbeat", {}]);
+    scheduleHeartbeat();
+  }
+
+  function handleFrame(raw: string): void {
+    let frame: PhoenixFrame;
+    try {
+      frame = JSON.parse(raw) as PhoenixFrame;
+    } catch {
+      return;
+    }
+    if (!Array.isArray(frame) || frame.length < 5) return;
+    const [frameJoinRef, , frameTopic, event, payload] = frame;
+
+    if (event === "phx_reply") {
+      const reply = payload as { status?: string } | null;
+      // Any reply on the phoenix topic answers the one outstanding
+      // heartbeat (the matching ref rides the frame, not the payload).
+      if (frameTopic === "phoenix") pendingHeartbeatRef = null;
+      if (frameTopic === topic) {
+        if (joinTimeoutTimer !== null) clearTimeout(joinTimeoutTimer);
+        joinTimeoutTimer = null;
+        if (reply?.status === "error" && !closed) {
+          // The join itself was rejected — an auth or channel problem, not
+          // a blip. Only a page reload re-signs the token, so stop here;
+          // feed reads still work over REST.
+          console.error("Knock feed channel join was rejected:", reply);
+          close();
+        }
+      }
+      return;
+    }
+
+    // Today the vendor sends "new-message" on the feed topic; any other
+    // feed-topic event would be a status change, and the listener's
+    // re-read covers both without distinguishing them. As in Phoenix's
+    // own dispatch, a frame carrying a foreign join ref is outdated
+    // chatter from before a rejoin and is dropped.
+    if (frameTopic === topic && (!frameJoinRef || frameJoinRef === joinRef)) {
+      onFeedEvent();
+    }
+  }
+
+  function joinFeedTopic(): void {
+    joinRef = makeRef();
+    reconnectAttempt = 0;
+    send([
+      joinRef,
+      makeRef(),
+      topic,
+      "phx_join",
+      // The query params the vendor's own feed clients join with; the
+      // server needs at least one keyed client entry to accept the join.
+      { [clientReferenceId]: { archived: "exclude", mode: "compact" } },
+    ]);
+    // As in Phoenix, a join that hears nothing back within its window is
+    // treated as failed: drop the connection so the reconnect path re-joins.
+    joinTimeoutTimer = setTimeout(() => {
+      joinTimeoutTimer = null;
+      socket?.close();
+    }, JOIN_TIMEOUT_MS);
+    scheduleHeartbeat();
+  }
+
+  function scheduleReconnect(): void {
+    if (closed) return;
+    const attempt = reconnectAttempt;
+    reconnectAttempt += 1;
+    reconnectTimer = setTimeout(() => void connect(), reconnectDelay(attempt));
+  }
+
+  async function connect(): Promise<void> {
+    let signedUrl: string;
+    try {
+      const response = await fetch(`${KNOCK_API}/sockets/connect`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.publicApiKey}`,
+          "X-Knock-User-Token": config.userToken,
+        },
+      });
+      const body = (await response.json().catch(() => null)) as
+        | KnockSocketConnectResponse
+        | null;
+      if (response.status === 401 || response.status === 403) {
+        // The signed token was rejected. It cannot become valid again
+        // without the layout loader re-signing it (a page reload — the
+        // DevUI switcher always does one), so do not retry.
+        console.error(
+          `Knock socket connect rejected (${response.status}); giving up on live updates`
+        );
+        return;
+      }
+      if (!response.ok || body?.mode !== "websocket" || typeof body.url !== "string") {
+        throw new Error(`Unexpected socket connect response (${response.status})`);
+      }
+      signedUrl = body.url;
+    } catch (error) {
+      if (!closed) {
+        console.error("Knock socket connect failed:", error);
+        scheduleReconnect();
+      }
+      return;
+    }
+    if (closed) return;
+
+    const query = new URLSearchParams({
+      vsn: PHOENIX_VSN,
+      api_key: config.publicApiKey,
+      user_token: config.userToken,
+    });
+    socket = new WebSocket(appendQueryString(signedUrl, query.toString()));
+    socket.onopen = joinFeedTopic;
+    socket.onmessage = (event) => {
+      if (typeof event.data === "string") handleFrame(event.data);
+    };
+    socket.onclose = () => {
+      stopHeartbeat();
+      joinRef = null;
+      socket = null;
+      scheduleReconnect();
+    };
+  }
+
+  function close(): void {
+    closed = true;
+    if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    stopHeartbeat();
+    if (joinTimeoutTimer !== null) clearTimeout(joinTimeoutTimer);
+    joinTimeoutTimer = null;
+    if (socket) {
+      const deadSocket = socket;
+      socket = null;
+      deadSocket.onclose = null;
+      if (joinRef !== null) {
+        try {
+          deadSocket.send(
+            JSON.stringify([joinRef, makeRef(), topic, "phx_leave", {}])
+          );
+        } catch {
+          // The socket was already closing — nothing to leave.
+        }
+      }
+      deadSocket.close();
+    }
+  }
+
+  void connect();
+  return { close };
+}
+
 type KnockFeedEntry = {
   id: string;
   inserted_at: string;
@@ -514,6 +786,20 @@ export function knockNotificationFeedClient(
     "X-Knock-User-Token": config.userToken,
     "Content-Type": "application/json",
   };
+
+  // The live half: one socket per signed-in user, opened when the first
+  // listener arrives (the store subscribes as the provider mounts) and
+  // closed in teardown — the DevUI switcher's full-page POST unmounts the
+  // provider, which tears this down before a fresh client re-authenticates
+  // with the new user's token. Where WebSocket is undefined (SSR render,
+  // tests) the socket never opens and subscribe stays a plain listener
+  // registry.
+  const listeners = new Set<() => void>();
+  let socket: { close: () => void } | null = null;
+
+  function fireListeners(): void {
+    for (const listener of listeners) listener();
+  }
 
   async function request<TBody>(
     path: string,
@@ -592,14 +878,26 @@ export function knockNotificationFeedClient(
       });
     },
 
-    // The live socket (#58) lands here: authenticate on the user's feed
-    // topic, fire the listener on arrivals and status changes, and tear the
-    // socket down in teardown(). Consumers stay untouched.
-    subscribe() {
-      return () => {};
+    // Live updates: the adapter's socket fires every listener whenever a
+    // message (or a status change, if the vendor ever sends one) lands on
+    // the user's feed topic — the store re-reads page one in response.
+    subscribe(listener) {
+      listeners.add(listener);
+      if (!socket && typeof WebSocket !== "undefined") {
+        socket = openKnockFeedSocket(config, fireListeners);
+      }
+      return () => {
+        listeners.delete(listener);
+      };
     },
 
-    teardown() {},
+    teardown() {
+      // Leaves the feed topic and closes the socket (no reconnect), so a
+      // DevUI user switch never leaks the previous user's connection.
+      socket?.close();
+      socket = null;
+      listeners.clear();
+    },
   };
 }
 

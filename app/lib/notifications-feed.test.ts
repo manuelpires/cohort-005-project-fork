@@ -353,7 +353,7 @@ describe("live updates through the adapter's subscribe", () => {
     await store.refresh();
     expect(store.getState().unseen).toBe(3);
 
-    // What the socket (#58) will do from inside the adapter.
+    // What the adapter's live socket does on a feed event.
     feed.items.unshift(
       notification({
         id: "message-0",
@@ -367,6 +367,85 @@ describe("live updates through the adapter's subscribe", () => {
     const state = store.getState();
     expect(state.items.map((item) => item.id)[0]).toBe("message-0");
     expect(state.unseen).toBe(4);
+  });
+
+  it("coalesces a burst of live changes into a single trailing re-read", async () => {
+    const feed = new FakeNotificationFeed(history(9));
+    const store = new NotificationFeedStore(feed);
+    await store.refresh();
+    let release!: () => void;
+    feed.gate = new Promise((resolve) => (release = resolve));
+
+    // Three arrivals while the re-read they triggered is still in flight:
+    // the socket throttles its own events, but rapid feed reads are what
+    // the vendor's rate limit actually bites on (~10 rapid reads).
+    feed.emitChange();
+    feed.emitChange();
+    feed.emitChange();
+    release();
+    await new Promise((resolve) => setTimeout(resolve));
+    await new Promise((resolve) => setTimeout(resolve));
+
+    // The mount read, the in-flight live read, and ONE trailing read that
+    // covers everything absorbed mid-flight — never one read per event.
+    const reads = feed.calls.filter((call) => call === "list:first").length;
+    expect(reads).toBe(3);
+  });
+});
+
+describe("the live subscription's lifecycle", () => {
+  it("acquiring the client wires the listener without reading anything", () => {
+    const feed = new FakeNotificationFeed(history(3));
+    new NotificationFeedStore(feed);
+
+    // Opening the connection is not a feed read: reads happen on mount,
+    // navigation, and socket callbacks only.
+    expect(feed.calls).toEqual([]);
+  });
+
+  it("nothing polls: an idle minute adds no feed reads", async () => {
+    vi.useFakeTimers();
+    try {
+      const feed = new FakeNotificationFeed(history(3));
+      const store = new NotificationFeedStore(feed);
+      await store.refresh();
+
+      vi.advanceTimersByTime(60_000);
+
+      expect(feed.calls).toEqual(["list:first"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("teardown unwires the listener: later vendor events read nothing", async () => {
+    const feed = new FakeNotificationFeed(history(3));
+    const store = new NotificationFeedStore(feed);
+    await store.refresh();
+
+    store.teardown();
+    feed.emitChange();
+
+    expect(feed.calls).toEqual(["list:first", "teardown"]);
+  });
+
+  it("re-acquiring with a new token rewires the listener on the new feed only", async () => {
+    // The DevUI switcher: a full-page POST, so the provider unmounts (old
+    // token's client tears down) and remounts over a freshly signed token.
+    const first = new FakeNotificationFeed(history(3));
+    const firstStore = new NotificationFeedStore(first);
+    await firstStore.refresh();
+    firstStore.teardown();
+
+    const second = new FakeNotificationFeed(history(3));
+    const secondStore = new NotificationFeedStore(second);
+
+    second.emitChange();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(second.calls).toEqual(["list:first"]);
+    expect(first.calls).toEqual(["list:first", "teardown"]);
+    expect(first.calls.filter((call) => call === "teardown")).toHaveLength(1);
   });
 });
 
