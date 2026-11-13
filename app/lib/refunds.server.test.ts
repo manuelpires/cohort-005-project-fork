@@ -597,6 +597,49 @@ describe("refund notifications", () => {
     });
   });
 
+  it("never tells a Platform Admin about their own request, while their buyer confirmation still arrives", async () => {
+    const notifications = fakeNotifications();
+    // A Platform Admin buys the course and raises their own Refund Request.
+    const adminBuyer = db
+      .insert(schema.users)
+      .values({
+        name: "Alex Admin",
+        email: "alex@example.com",
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+    const purchase = buyForSelf(adminBuyer.id);
+
+    const result = await raiseRefundRequest(
+      db,
+      purchase.id,
+      adminBuyer.id,
+      "It was not what I expected.",
+      NOW,
+      notifications
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    const open = notifications.triggers.find(
+      (trigger) => trigger.workflow === "refund-request-open"
+    );
+    expect(open).toBeDefined();
+    expect(open?.recipients.map((recipient) => recipient.id)).toEqual([
+      platformAdmin.id,
+    ]);
+    expect(open?.actor).toMatchObject({ id: adminBuyer.id });
+    // The sanctioned exception: the buyer is told their own request is
+    // under review, even though they are the actor.
+    const confirmation = notifications.triggers.find(
+      (trigger) => trigger.workflow === "refund-request-raised"
+    );
+    expect(confirmation).toMatchObject({
+      recipients: [{ id: adminBuyer.id }],
+    });
+    expect(notifications.messagesFor(adminBuyer.id)).toHaveLength(1);
+  });
+
   it("resolves Platform Admins at trigger time, not before", async () => {
     const notifications = fakeNotifications();
     const purchase = buyForSelf(base.user.id);

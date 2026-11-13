@@ -509,12 +509,17 @@ export async function raiseRefundRequest(
     notifications
   );
 
-  const platformAdmins = getPlatformAdmins(db);
-  if (platformAdmins.length > 0) {
+  // A person is never notified about their own action — a Platform Admin
+  // raising their own request is not an open request that concerns them
+  // (their buyer confirmation above is the sanctioned exception).
+  const otherPlatformAdmins = getPlatformAdmins(db).filter(
+    (admin) => admin.id !== buyer.id
+  );
+  if (otherPlatformAdmins.length > 0) {
     await triggerNotification(
       {
         workflow: "refund-request-open",
-        recipients: platformAdmins,
+        recipients: otherPlatformAdmins,
         actor: buyer,
         data: {
           kind: "open-refund-request",
