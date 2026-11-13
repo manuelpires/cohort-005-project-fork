@@ -174,9 +174,9 @@ function NotificationPopover({
       <div className="flex items-center gap-2 bg-muted/60 px-4 py-3">
         <Bell className="size-4" />
         <span className="font-semibold">Notifications</span>
-        {/* The Notifications preference card (#61) lands on /settings. */}
+        {/* The Notifications preference card on /settings. */}
         <Link
-          to="/settings"
+          to="/settings#notifications"
           title="Notification settings"
           onClick={close}
           className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
