@@ -40,6 +40,27 @@ export type NotificationUser = {
   avatarUrl: string | null;
 };
 
+// The workflows of the Notification catalogue, in Cadence's vocabulary. The
+// Knock adapter maps these to the vendor's workflow keys; no other code
+// knows what the vendor calls them.
+export type NotificationWorkflow =
+  | "refund-request-raised"
+  | "refund-request-approved"
+  | "refund-request-declined"
+  | "refund-request-open";
+
+export type NotificationTrigger = {
+  workflow: NotificationWorkflow;
+  recipientIds: number[];
+  // Omitted for Notifications Cadence itself sends (the Refund Request
+  // confirmation): they render with a Cadence avatar, not a person's.
+  actorId?: number;
+  data: Record<string, unknown>;
+  // One per domain event (e.g. "refund-approved:<refundRequestId>"), so a
+  // retry layer added later cannot send duplicates.
+  idempotencyKey: string;
+};
+
 export interface NotificationsPort {
   identifyUser(user: NotificationUser): Promise<void>;
   getPreferences(userId: number): Promise<NotificationPreferences | null>;
@@ -47,6 +68,7 @@ export interface NotificationsPort {
     userId: number,
     preferences: NotificationPreferences
   ): Promise<void>;
+  trigger(notification: NotificationTrigger): Promise<void>;
 }
 
 // ─── Knock adapter ───
@@ -66,6 +88,13 @@ const KNOCK_CATEGORY_KEYS: Record<NotificationCategoryId, string> = {
 };
 
 const KNOCK_FEED_CHANNEL_TYPE = "in_app_feed";
+
+const KNOCK_WORKFLOW_KEYS: Record<NotificationWorkflow, string> = {
+  "refund-request-raised": "refund-request-raised",
+  "refund-request-approved": "refund-request-approved",
+  "refund-request-declined": "refund-request-declined",
+  "refund-request-open": "refund-request-open",
+};
 
 export function knockNotifications(secretKey: string): NotificationsPort {
   const knock = new Knock({ apiKey: secretKey });
@@ -91,9 +120,7 @@ export function knockNotifications(secretKey: string): NotificationsPort {
           preferences[category] = setting;
           continue;
         }
-        const channelSetting = setting.channel_types?.[
-          KNOCK_FEED_CHANNEL_TYPE
-        ];
+        const channelSetting = setting.channel_types?.[KNOCK_FEED_CHANNEL_TYPE];
         preferences[category] =
           typeof channelSetting === "boolean" ? channelSetting : false;
       }
@@ -114,6 +141,22 @@ export function knockNotifications(secretKey: string): NotificationsPort {
         categories,
       });
     },
+    async trigger(notification) {
+      await knock.workflows.trigger(
+        KNOCK_WORKFLOW_KEYS[notification.workflow],
+        {
+          recipients: notification.recipientIds.map(String),
+          actor:
+            notification.actorId !== undefined
+              ? String(notification.actorId)
+              : undefined,
+          data: notification.data,
+        },
+        // The vendor dedupes on this header, so the per-domain-event key
+        // makes retried triggers safe.
+        { idempotencyKey: notification.idempotencyKey }
+      );
+    },
   };
 }
 
@@ -126,6 +169,7 @@ export class FakeNotifications implements NotificationsPort {
     userId: number;
     preferences: NotificationPreferences;
   }> = [];
+  readonly triggers: NotificationTrigger[] = [];
 
   async identifyUser(user: NotificationUser): Promise<void> {
     this.users.set(user.id, user);
@@ -144,6 +188,13 @@ export class FakeNotifications implements NotificationsPort {
     this.preferenceSets.set(userId, preferences);
     this.preferenceWrites.push({ userId, preferences: { ...preferences } });
   }
+
+  async trigger(notification: NotificationTrigger): Promise<void> {
+    this.triggers.push({
+      ...notification,
+      data: { ...notification.data },
+    });
+  }
 }
 
 export function fakeNotifications(): FakeNotifications {
@@ -157,6 +208,7 @@ export function noopNotifications(): NotificationsPort {
       return null;
     },
     async setPreferences() {},
+    async trigger() {},
   };
 }
 
@@ -180,6 +232,29 @@ function defaultPort(): NotificationsPort {
   return secretKey ? knockNotifications(secretKey) : noopNotifications();
 }
 
+// The port prod callers get when they pass none: Knock behind the secret
+// key, or the no-op adapter when dev runs keyless.
+export function defaultNotificationsPort(): NotificationsPort {
+  return defaultPort();
+}
+
+// Triggers a Notification through the port. Deliberately best-effort, like
+// a failed sync: the error is caught and logged so a vendor outage can never
+// fail the domain action around it.
+export async function triggerNotification(
+  notification: NotificationTrigger,
+  port: NotificationsPort = defaultPort()
+): Promise<void> {
+  try {
+    await port.trigger(notification);
+  } catch (error) {
+    console.error(
+      `Notification trigger failed (${notification.workflow}):`,
+      error
+    );
+  }
+}
+
 // Identifies a Cadence user to the notification vendor (name, email, avatar
 // as the vendor's standard avatar property) so the feed always shows the
 // current avatar, and writes the default preference set only if the user has
@@ -194,10 +269,7 @@ export async function syncNotificationsUser(
     await port.identifyUser(user);
     const existing = await port.getPreferences(user.id);
     if (existing === null) {
-      await port.setPreferences(
-        user.id,
-        DEFAULT_NOTIFICATION_PREFERENCES
-      );
+      await port.setPreferences(user.id, DEFAULT_NOTIFICATION_PREFERENCES);
     }
   } catch (error) {
     console.error(`Notification sync failed for user ${user.id}:`, error);

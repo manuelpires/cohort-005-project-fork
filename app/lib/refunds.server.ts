@@ -1,4 +1,13 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "~/db/schema";
@@ -15,8 +24,13 @@ import {
   videoWatchEvents,
   LessonProgressStatus,
   RefundStatus,
+  UserRole,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
+import {
+  triggerNotification,
+  type NotificationsPort,
+} from "~/lib/notifications.server";
 import {
   REFUND_COMPLETION_LIMIT,
   REFUND_WATCH_LIMIT_SECONDS,
@@ -215,8 +229,7 @@ function getRefundFigures(db: Queryable, purchase: Purchase): RefundFigures {
 /** What the buyer is told when they can't raise a Refund Request. */
 const RULE_BREAK_ERRORS: Record<RuleBreak, string> = {
   window_closed: `The ${REFUND_WINDOW_DAYS}-day window has closed.`,
-  watched_too_much:
-    "You have watched too much of this course to get a refund.",
+  watched_too_much: "You have watched too much of this course to get a refund.",
   completed_too_much:
     "You have completed too much of this course to request a refund.",
   seat_claimed: "A Team Licence with a claimed Seat cannot be refunded.",
@@ -257,9 +270,90 @@ function findRuleBreaks(
   return breaks;
 }
 
+// ─── Refund notifications ───
+
+// "Every Platform Admin" is resolved at trigger time by querying Cadence,
+// never synced to the vendor: a newly promoted admin therefore receives
+// only requests raised after the promotion. The role query lives here so
+// the recipient list is always fresh.
+function getPlatformAdminIds(db: Queryable): number[] {
+  return db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, UserRole.Admin))
+    .all()
+    .map((row) => row.id);
+}
+
+// What a decision Notification needs, read back after the decision commits.
+type RefundDecisionFacts = {
+  decisionNote: string | null;
+  resolvedByUserId: number | null;
+  buyerId: number;
+  amountPaid: number;
+  courseTitle: string;
+};
+
+function getRefundDecisionFacts(
+  db: Queryable,
+  refundRequestId: number
+): RefundDecisionFacts | undefined {
+  return db
+    .select({
+      decisionNote: refunds.decisionNote,
+      resolvedByUserId: refunds.resolvedByUserId,
+      buyerId: purchases.userId,
+      amountPaid: purchases.amountPaid,
+      courseTitle: courses.title,
+    })
+    .from(refunds)
+    .innerJoin(purchases, eq(refunds.purchaseId, purchases.id))
+    .innerJoin(courses, eq(purchases.courseId, courses.id))
+    .where(eq(refunds.id, refundRequestId))
+    .get();
+}
+
+async function notifyRefundDecision(
+  db: Queryable,
+  refundRequestId: number,
+  decision: "approved" | "declined",
+  notifications: NotificationsPort
+): Promise<void> {
+  const facts = getRefundDecisionFacts(db, refundRequestId);
+  if (!facts) return;
+
+  await triggerNotification(
+    {
+      workflow:
+        decision === "approved"
+          ? "refund-request-approved"
+          : "refund-request-declined",
+      recipientIds: [facts.buyerId],
+      actorId: facts.resolvedByUserId ?? undefined,
+      data: {
+        kind:
+          decision === "approved"
+            ? "refund-request-approved"
+            : "refund-request-declined",
+        refundRequestId,
+        courseTitle: facts.courseTitle,
+        amount: formatPrice(facts.amountPaid),
+        decisionNote: facts.decisionNote,
+        url: "/settings",
+      },
+      idempotencyKey: `refund-${decision}:${refundRequestId}`,
+    },
+    notifications
+  );
+}
+
 // ─── Raising a Refund Request ───
 
-export type Failure = { ok: false; status: 400 | 403 | 404 | 409; error: string };
+export type Failure = {
+  ok: false;
+  status: 400 | 403 | 404 | 409;
+  error: string;
+};
 
 type RefundCheck = { ok: true; purchase: Purchase } | Failure;
 
@@ -354,13 +448,17 @@ export type RaiseResult =
   | { ok: true; refundRequestId: number; kind: PurchaseKind; email: Email }
   | Failure;
 
-export function raiseRefundRequest(
+// The notification port is injected with no default, the same way the
+// database and clock are: routes pass defaultNotificationsPort(), tests the
+// fake — so a test can never accidentally reach the vendor.
+export async function raiseRefundRequest(
   db: Db,
   purchaseId: number,
   buyerId: number,
   reason: string,
-  now: Date
-): RaiseResult {
+  now: Date,
+  notifications: NotificationsPort
+): Promise<RaiseResult> {
   const check = checkRefundRequest(db, purchaseId, buyerId, now);
   if (!check.ok) return check;
 
@@ -386,6 +484,44 @@ export function raiseRefundRequest(
     })
     .returning()
     .get();
+
+  await triggerNotification(
+    {
+      workflow: "refund-request-raised",
+      recipientIds: [buyerId],
+      data: {
+        kind: "refund-request-confirmed",
+        refundRequestId: refundRequest.id,
+        courseTitle: course.title,
+        amount: formatPrice(purchase.amountPaid),
+        url: null,
+      },
+      idempotencyKey: `refund-raised:${refundRequest.id}`,
+    },
+    notifications
+  );
+
+  const platformAdminIds = getPlatformAdminIds(db);
+  if (platformAdminIds.length > 0) {
+    await triggerNotification(
+      {
+        workflow: "refund-request-open",
+        recipientIds: platformAdminIds,
+        actorId: buyerId,
+        data: {
+          kind: "open-refund-request",
+          refundRequestId: refundRequest.id,
+          buyerName: buyer.name,
+          courseTitle: course.title,
+          amount: formatPrice(purchase.amountPaid),
+          reason,
+          url: "/admin/refunds",
+        },
+        idempotencyKey: `refund-open:${refundRequest.id}`,
+      },
+      notifications
+    );
+  }
 
   return {
     ok: true,
@@ -500,7 +636,8 @@ export function listRefundRequestsForReview(
       // A Claimed Seat belongs to another student, so the only way out of
       // that request is a decline. See docs/adr/0003.
       canApprove:
-        row.status === RefundStatus.Open && !ruleBreaks.includes("seat_claimed"),
+        row.status === RefundStatus.Open &&
+        !ruleBreaks.includes("seat_claimed"),
     };
   });
 }
@@ -611,14 +748,15 @@ function findOpenRefundRequest(
  * - A Team Licence: its Unclaimed Seats can never be claimed. Refused if any
  *   Seat has been claimed (docs/adr/0003).
  */
-export function approveRefundRequest(
+export async function approveRefundRequest(
   db: Db,
   refundRequestId: number,
   platformAdminId: number,
   note: string | null,
-  now: Date
-): DecisionResult {
-  return db.transaction((tx): DecisionResult => {
+  now: Date,
+  notifications: NotificationsPort
+): Promise<DecisionResult> {
+  const result = db.transaction((tx): DecisionResult => {
     const found = findOpenRefundRequest(tx, refundRequestId);
     if (!found.ok) return found;
 
@@ -682,6 +820,12 @@ export function approveRefundRequest(
       email: buildDecisionEmail(tx, purchase, RefundStatus.Approved, note),
     };
   });
+
+  if (result.ok) {
+    await notifyRefundDecision(db, refundRequestId, "approved", notifications);
+  }
+
+  return result;
 }
 
 /**
@@ -689,13 +833,14 @@ export function approveRefundRequest(
  * the buyer may raise a new Refund Request. The note is required: it is how
  * the buyer learns whether another request is worth raising.
  */
-export function declineRefundRequest(
+export async function declineRefundRequest(
   db: Db,
   refundRequestId: number,
   platformAdminId: number,
   note: string,
-  now: Date
-): DecisionResult {
+  now: Date,
+  notifications: NotificationsPort
+): Promise<DecisionResult> {
   const trimmedNote = note.trim();
 
   if (trimmedNote.length === 0) {
@@ -706,7 +851,7 @@ export function declineRefundRequest(
     };
   }
 
-  return db.transaction((tx): DecisionResult => {
+  const result = db.transaction((tx): DecisionResult => {
     const found = findOpenRefundRequest(tx, refundRequestId);
     if (!found.ok) return found;
 
@@ -730,6 +875,12 @@ export function declineRefundRequest(
       ),
     };
   });
+
+  if (result.ok) {
+    await notifyRefundDecision(db, refundRequestId, "declined", notifications);
+  }
+
+  return result;
 }
 
 /** The email the buyer gets once their Refund Request is decided. */

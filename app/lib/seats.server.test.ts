@@ -6,6 +6,7 @@ import { UserRole } from "~/db/schema";
 import { getCouponByCode, redeemSeat } from "./seats.server";
 import { isUserEnrolled } from "./enrollments.server";
 import { raiseRefundRequest } from "./refunds.server";
+import { noopNotifications } from "./notifications.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -121,14 +122,15 @@ describe("redeeming a Seat", () => {
     });
   });
 
-  it("holds a Seat while its licence has an Open Refund Request", () => {
+  it("holds a Seat while its licence has an Open Refund Request", async () => {
     const { purchase, codes } = buySeats(2, "PT");
-    const raised = raiseRefundRequest(
+    const raised = await raiseRefundRequest(
       db,
       purchase.id,
       admin.id,
       "It was not what I expected.",
-      NOW
+      NOW,
+      noopNotifications()
     );
     if (!raised.ok) throw new Error(raised.error);
 
