@@ -13,6 +13,11 @@ import { UserAvatar } from "~/components/user-avatar";
 import { AlertTriangle, CheckCircle2, ExternalLink } from "lucide-react";
 import { cn, daysSince, formatRelativeTime } from "~/lib/utils";
 import { MIN_COMMENT_LENGTH, MAX_COMMENT_LENGTH } from "~/lib/comments";
+import {
+  createComment,
+  getCommentById,
+  getCourseForLesson,
+} from "~/lib/comments.server";
 import { parseFormData } from "~/lib/validation";
 import { db } from "~/db";
 import {
@@ -96,66 +101,6 @@ function getUnansweredQuestions(instructorId: number | null): QueuedQuestion[] {
     .all();
 }
 
-function getCommentById(commentId: number) {
-  return db.select().from(comments).where(eq(comments.id, commentId)).get();
-}
-
-function getCourseForLesson(lessonId: number) {
-  return db
-    .select({
-      courseId: courses.id,
-      courseTitle: courses.title,
-      courseSlug: courses.slug,
-      instructorId: courses.instructorId,
-    })
-    .from(lessons)
-    .innerJoin(modules, eq(lessons.moduleId, modules.id))
-    .innerJoin(courses, eq(modules.courseId, courses.id))
-    .where(eq(lessons.id, lessonId))
-    .get();
-}
-
-function createComment(
-  userId: number,
-  lessonId: number,
-  parentId: number | null,
-  body: string
-) {
-  const trimmed = body.trim();
-  if (trimmed.length < MIN_COMMENT_LENGTH) {
-    throw new Error("Comment cannot be empty");
-  }
-  if (trimmed.length > MAX_COMMENT_LENGTH) {
-    throw new Error(
-      `Comment must be ${MAX_COMMENT_LENGTH} characters or fewer`
-    );
-  }
-
-  const course = getCourseForLesson(lessonId);
-  if (!course) {
-    throw new Error("Lesson not found");
-  }
-
-  if (parentId !== null) {
-    const parent = getCommentById(parentId);
-    if (!parent) {
-      throw new Error("Parent comment not found");
-    }
-    if (parent.lessonId !== lessonId) {
-      throw new Error("Parent comment belongs to a different lesson");
-    }
-    if (parent.parentId !== null) {
-      throw new Error("Replies can only be one level deep");
-    }
-  }
-
-  return db
-    .insert(comments)
-    .values({ userId, lessonId, parentId, body: trimmed })
-    .returning()
-    .get();
-}
-
 // A question sitting this long without an answer gets called out visually.
 const STALE_AFTER_DAYS = 3;
 
@@ -193,12 +138,12 @@ export async function action({ request }: Route.ActionArgs) {
     return { ok: false, error: "Enter a reply before posting." };
   }
 
-  const question = getCommentById(parsed.data.commentId);
+  const question = getCommentById(db, parsed.data.commentId);
   if (!question) {
     throw data("Question not found", { status: 404 });
   }
 
-  const course = getCourseForLesson(question.lessonId);
+  const course = getCourseForLesson(db, question.lessonId);
   if (!course) {
     throw data("Course not found", { status: 404 });
   }
@@ -207,18 +152,16 @@ export async function action({ request }: Route.ActionArgs) {
   // instructor, or an admin.
   const access = await requireStaff(request, course.courseId);
 
-  try {
-    createComment(
-      access.userId!,
-      question.lessonId,
-      question.id,
-      parsed.data.body
-    );
-  } catch (error) {
-    if (error instanceof Error) {
-      return { ok: false, error: error.message };
-    }
-    throw error;
+  const result = createComment(
+    db,
+    access.userId!,
+    question.lessonId,
+    question.id,
+    parsed.data.body,
+    new Date()
+  );
+  if (!result.ok) {
+    return { ok: false, error: result.error };
   }
 
   return { ok: true };
