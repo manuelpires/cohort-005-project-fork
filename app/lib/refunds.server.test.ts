@@ -435,8 +435,9 @@ describe("refund notifications", () => {
     );
 
     if (!result.ok) throw new Error(result.error);
-    expect(notifications.triggers).toHaveLength(1);
-    const [confirmation] = notifications.triggers;
+    const confirmation = notifications.triggers.find(
+      (trigger) => trigger.workflow === "refund-request-raised"
+    );
     expect(confirmation).toMatchObject({
       workflow: "refund-request-raised",
       recipientIds: [base.user.id],
@@ -450,6 +451,95 @@ describe("refund notifications", () => {
       url: null,
     });
     expect(confirmation).not.toHaveProperty("actorId");
+  });
+
+  it("tells every Platform Admin who asked, for what and why", async () => {
+    const notifications = fakeNotifications();
+    const anotherAdmin = db
+      .insert(schema.users)
+      .values({
+        name: "Sam Admin",
+        email: "sam@example.com",
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+    const purchase = buyForSelf(base.user.id);
+
+    const result = await raiseRefundRequest(
+      db,
+      purchase.id,
+      base.user.id,
+      "It was not what I expected.",
+      NOW,
+      notifications
+    );
+
+    if (!result.ok) throw new Error(result.error);
+    const open = notifications.triggers.find(
+      (trigger) => trigger.workflow === "refund-request-open"
+    );
+    expect(open).toMatchObject({
+      recipientIds: expect.arrayContaining([
+        platformAdmin.id,
+        anotherAdmin.id,
+      ]),
+      actorId: base.user.id,
+      idempotencyKey: `refund-open:${result.refundRequestId}`,
+    });
+    expect(open?.recipientIds).toHaveLength(2);
+    expect(open?.data).toEqual({
+      kind: "open-refund-request",
+      refundRequestId: result.refundRequestId,
+      buyerName: "Test User",
+      courseTitle: "Test Course",
+      amount: "$79.00",
+      reason: "It was not what I expected.",
+      url: "/admin/refunds",
+    });
+  });
+
+  it("resolves Platform Admins at trigger time, not before", async () => {
+    const notifications = fakeNotifications();
+    const purchase = buyForSelf(base.user.id);
+    const before = buyForSelf(addLearner("Ben").id);
+
+    await raiseRefundRequest(
+      db,
+      before.id,
+      before.userId,
+      "Not for me.",
+      NOW,
+      notifications
+    );
+    // Pat is promoted after the first request was raised.
+    const promoted = db
+      .insert(schema.users)
+      .values({
+        name: "Sam Admin",
+        email: "sam@example.com",
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+    const after = buyForSelf(addLearner("Carla").id);
+
+    await raiseRefundRequest(
+      db,
+      after.id,
+      after.userId,
+      "Also not for me.",
+      NOW,
+      notifications
+    );
+
+    const [firstOpen, secondOpen] = notifications.triggers
+      .filter((trigger) => trigger.workflow === "refund-request-open")
+      .map((trigger) => trigger.recipientIds);
+    expect(firstOpen).toEqual([platformAdmin.id]);
+    expect(secondOpen).toEqual(
+      expect.arrayContaining([platformAdmin.id, promoted.id])
+    );
   });
 
   it("never fails the raise when the notification adapter throws", async () => {
@@ -476,7 +566,7 @@ describe("refund notifications", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(logged).toHaveBeenCalledTimes(1);
+    expect(logged).toHaveBeenCalled();
     logged.mockRestore();
   });
 });

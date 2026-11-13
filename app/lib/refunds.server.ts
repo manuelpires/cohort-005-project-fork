@@ -15,6 +15,7 @@ import {
   videoWatchEvents,
   LessonProgressStatus,
   RefundStatus,
+  UserRole,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
 import {
@@ -261,6 +262,21 @@ function findRuleBreaks(
   return breaks;
 }
 
+// ─── Refund notifications ───
+
+// "Every Platform Admin" is resolved at trigger time by querying Cadence,
+// never synced to the vendor: a newly promoted admin therefore receives
+// only requests raised after the promotion. The role query lives here so
+// the recipient list is always fresh.
+function getPlatformAdminIds(db: Queryable): number[] {
+  return db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, UserRole.Admin))
+    .all()
+    .map((row) => row.id);
+}
+
 // ─── Raising a Refund Request ───
 
 export type Failure = { ok: false; status: 400 | 403 | 404 | 409; error: string };
@@ -410,6 +426,28 @@ export async function raiseRefundRequest(
     },
     notifications
   );
+
+  const platformAdminIds = getPlatformAdminIds(db);
+  if (platformAdminIds.length > 0) {
+    await triggerNotification(
+      {
+        workflow: "refund-request-open",
+        recipientIds: platformAdminIds,
+        actorId: buyerId,
+        data: {
+          kind: "open-refund-request",
+          refundRequestId: refundRequest.id,
+          buyerName: buyer.name,
+          courseTitle: course.title,
+          amount: formatPrice(purchase.amountPaid),
+          reason,
+          url: "/admin/refunds",
+        },
+        idempotencyKey: `refund-open:${refundRequest.id}`,
+      },
+      notifications
+    );
+  }
 
   return {
     ok: true,
