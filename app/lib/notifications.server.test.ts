@@ -57,6 +57,9 @@ describe("syncNotificationsUser", () => {
       async setPreferences() {
         throw new Error("Knock rejected the key");
       },
+      async trigger() {
+        throw new Error("Knock rejected the key");
+      },
     };
 
     await expect(syncNotificationsUser(USER, port)).resolves.toBeUndefined();

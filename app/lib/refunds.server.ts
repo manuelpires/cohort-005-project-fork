@@ -17,6 +17,7 @@ import {
   RefundStatus,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
+import type { NotificationsPort } from "~/lib/notifications.server";
 import {
   REFUND_COMPLETION_LIMIT,
   REFUND_WATCH_LIMIT_SECONDS,
@@ -354,13 +355,17 @@ export type RaiseResult =
   | { ok: true; refundRequestId: number; kind: PurchaseKind; email: Email }
   | Failure;
 
-export function raiseRefundRequest(
+// The notification port is injected with no default, the same way the
+// database and clock are: routes pass defaultNotificationsPort(), tests the
+// fake — so a test can never accidentally reach the vendor.
+export async function raiseRefundRequest(
   db: Db,
   purchaseId: number,
   buyerId: number,
   reason: string,
-  now: Date
-): RaiseResult {
+  now: Date,
+  notifications: NotificationsPort
+): Promise<RaiseResult> {
   const check = checkRefundRequest(db, purchaseId, buyerId, now);
   if (!check.ok) return check;
 
@@ -386,6 +391,19 @@ export function raiseRefundRequest(
     })
     .returning()
     .get();
+
+  await notifications.trigger({
+    workflow: "refund-request-raised",
+    recipientIds: [buyerId],
+    data: {
+      kind: "refund-request-confirmed",
+      refundRequestId: refundRequest.id,
+      courseTitle: course.title,
+      amount: formatPrice(purchase.amountPaid),
+      url: null,
+    },
+    idempotencyKey: `refund-raised:${refundRequest.id}`,
+  });
 
   return {
     ok: true,
