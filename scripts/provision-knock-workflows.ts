@@ -2,122 +2,121 @@
 // Development environment, via the Management API (control.knock.app, which
 // authenticates with a service token — never an environment API key).
 //
+// The catalogue itself lives in app/lib/notifications.server.ts: the app's
+// category and workflow keys are the vendor's keys verbatim, and each
+// workflow's preference category comes from WORKFLOW_CATEGORIES, so key and
+// category can never drift apart between the app and the vendor. This
+// script adds only what the vendor's dashboard needs on top: presentation.
+//
 // Each workflow is created or updated under its deterministic key, tagged
-// with its preference category (the same keys the server port maps onto
-// Knock category keys), given one in-app feed step on the Cadence feed
-// channel, and committed — a workflow's category only exists at runtime once
-// the workflow is committed, and triggering an uncommitted workflow 404s.
-// Cadence writes the notification text client-side, so the step's template
-// body is a fallback, not the source of truth.
+// with its preference category, given one in-app feed step on the Cadence
+// feed channel, and committed — a workflow's category only exists at
+// runtime once the workflow is committed, and triggering an uncommitted
+// workflow 404s. Cadence writes the notification text client-side, so the
+// step's template body is a fallback, not the source of truth.
 //
 // Safe to re-run: the upsert converges on the same content, and an empty
 // commit is allowed when nothing changed. Run with
 // `npm run notifications:provision-workflows`.
 process.loadEnvFile(".env");
 
+import {
+  WORKFLOW_CATEGORIES,
+  type NotificationCategoryId,
+  type NotificationWorkflowKey,
+} from "../app/lib/notifications.server";
+
 const MANAGEMENT_API = "https://control.knock.app/v1";
 const ENVIRONMENT = "development";
 
-type CategorySpec = {
-  key: string;
-  description?: string;
+// The six preference categories of the Notification catalogue. They must
+// exist in the project's preference category catalog before a workflow can
+// reference them, so each is upserted first. The record type keeps this
+// exhaustive: a new category in the app is a type error here until it is
+// described.
+const PREFERENCE_CATEGORIES: Record<
+  NotificationCategoryId,
+  { description?: string }
+> = {
+  "refund-request-updates": {},
+  "open-refund-requests": {},
+  "seat-claims": {},
+  enrollments: {},
+  "discussion-questions": {
+    description: "Notifications about new Discussion Questions on your lessons",
+  },
+  "discussion-replies": {
+    description: "Notifications about replies to your Discussion Questions",
+  },
 };
 
+// What each workflow looks like in the vendor's dashboard. Exhaustive over
+// the catalogue's workflow keys for the same reason: a new workflow in the
+// app is a type error here until it is presentable.
 type WorkflowSpec = {
-  key: string;
+  key: NotificationWorkflowKey;
   name: string;
   description: string;
-  category: string;
+  category: NotificationCategoryId;
   markdownBody: string;
 };
 
-// The six preference categories of the Notification catalogue. They must
-// exist in the project's preference category catalog before a workflow can
-// reference them, so each is upserted first.
-const PREFERENCE_CATEGORIES: CategorySpec[] = [
-  { key: "refund-request-updates" },
-  { key: "open-refund-requests" },
-  { key: "seat-claims" },
-  { key: "enrollments" },
-  {
-    key: "discussion-questions",
-    description: "Notifications about new Discussion Questions on your lessons",
-  },
-  {
-    key: "discussion-replies",
-    description: "Notifications about replies to your Discussion Questions",
-  },
-];
-
-const WORKFLOWS: WorkflowSpec[] = [
-  {
-    key: "refund-request-raised",
+const WORKFLOW_PRESENTATION: Record<
+  NotificationWorkflowKey,
+  Omit<WorkflowSpec, "key" | "category">
+> = {
+  "refund-request-raised": {
     name: "Refund Request Raised",
     description:
       "Confirms to the buyer their Refund Request is under review (course, amount).",
-    category: "refund-request-updates",
     markdownBody: "{{ workflow.name }} for {{ recipient.name }}",
   },
-  {
-    key: "refund-request-approved",
+  "refund-request-approved": {
     name: "Refund Request Approved",
     description:
       "Tells the buyer their Refund Request was approved, with any decision note.",
-    category: "refund-request-updates",
     markdownBody: "{{ workflow.name }} for {{ recipient.name }}",
   },
-  {
-    key: "refund-request-declined",
+  "refund-request-declined": {
     name: "Refund Request Declined",
     description:
       "Tells the buyer their Refund Request was declined, with the decision note.",
-    category: "refund-request-updates",
     markdownBody: "{{ workflow.name }} for {{ recipient.name }}",
   },
-  {
-    key: "refund-request-open",
+  "refund-request-open": {
     name: "Open Refund Request",
     description:
       "Tells every Platform Admin who asked for a refund, for which course, and why.",
-    category: "open-refund-requests",
     markdownBody: "{{ workflow.name }} for {{ recipient.name }}",
   },
-  {
-    key: "seat-claimed",
+  "seat-claimed": {
     name: "Seat claimed",
     description:
       "A Student claimed a Seat on a Team Licence. Recipient: the Team Admin who owns the licence.",
-    category: "seat-claims",
     markdownBody:
       "{{ actor.name }} claimed a Seat in {{ data.courseTitle }} — {{ data.seatsLeft }} left",
   },
-  {
-    key: "enrollment-created",
+  "enrollment-created": {
     name: "Enrollment created",
     description:
       "A Student enrolled on a course through an Individual Purchase or a Claimed Seat. Recipient: the course's Instructor. Off by default; the recipient opts in through the Enrollments preference.",
-    category: "enrollments",
     markdownBody: "{{ actor.name }} enrolled in {{ data.courseTitle }}",
   },
-  {
-    key: "discussion-question-created",
+  "discussion-question-created": {
     name: "Discussion Question created",
     description:
       "Someone other than the course's Instructor asked a Discussion Question on the Instructor's lesson.",
-    category: "discussion-questions",
     markdownBody:
       "{{ actor.name }} asked a question on {{ data.lessonTitle }}",
   },
-  {
-    key: "discussion-reply-created",
+  "discussion-reply-created": {
     name: "Discussion Reply created",
     description:
       "Someone other than the author replied to the author's Discussion Question.",
-    category: "discussion-replies",
     markdownBody:
       "{{ actor.name }} replied to your question on {{ data.lessonTitle }}",
   },
-];
+};
 
 function serviceToken(): string {
   const token = process.env.KNOCK_SERVICE_TOKEN;
@@ -157,17 +156,21 @@ async function management(
   return body as Record<string, unknown>;
 }
 
-async function upsertCategory(token: string, spec: CategorySpec) {
+async function upsertCategory(
+  token: string,
+  key: NotificationCategoryId,
+  spec: { description?: string }
+) {
   // Upserting by name is idempotent; a workflow's category must already
   // exist in the catalog before the workflow can reference it.
-  await management(token, `/preference_categories/${spec.key}`, {
+  await management(token, `/preference_categories/${key}`, {
     method: "PUT",
     body: JSON.stringify({
-      name: spec.key,
+      name: key,
       ...(spec.description ? { description: spec.description } : {}),
     }),
   });
-  console.log(`preference category ${spec.key}: upserted.`);
+  console.log(`preference category ${key}: upserted.`);
 }
 
 async function provisionWorkflow(
@@ -226,11 +229,19 @@ async function main() {
   const token = serviceToken();
   const channelKey = feedChannelKey();
 
-  for (const category of PREFERENCE_CATEGORIES) {
-    await upsertCategory(token, category);
+  for (const key of Object.keys(
+    PREFERENCE_CATEGORIES
+  ) as NotificationCategoryId[]) {
+    await upsertCategory(token, key, PREFERENCE_CATEGORIES[key]);
   }
-  for (const spec of WORKFLOWS) {
-    await provisionWorkflow(token, channelKey, spec);
+  for (const key of Object.keys(
+    WORKFLOW_PRESENTATION
+  ) as NotificationWorkflowKey[]) {
+    await provisionWorkflow(token, channelKey, {
+      key,
+      category: WORKFLOW_CATEGORIES[key],
+      ...WORKFLOW_PRESENTATION[key],
+    });
   }
   console.log("Notification workflows provisioned.");
 }

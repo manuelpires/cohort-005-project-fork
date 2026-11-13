@@ -40,25 +40,16 @@ export type NotificationUser = {
   avatarUrl: string | null;
 };
 
-// Workflow keys are deterministic and identical in the vendor (see
-// scripts/provision-knock-workflows.ts).
-export type NotificationWorkflowKey =
-  | "refund-request-raised"
-  | "refund-request-open"
-  | "refund-request-approved"
-  | "refund-request-declined"
-  | "discussion-question-created"
-  | "discussion-reply-created"
-  | "enrollment-created"
-  | "seat-claimed";
-
-// Which preference category each workflow belongs to. In Knock the category
-// is tagged on the workflow itself and evaluated per recipient at delivery
-// time; the fake below mirrors those semantics for tests.
-export const WORKFLOW_CATEGORIES: Record<
-  NotificationWorkflowKey,
-  NotificationCategoryId
-> = {
+// ─── The Notification catalogue ───
+// One entry per workflow: its key (which doubles as the vendor's workflow
+// key — the deterministic contract with scripts/provision-knock-workflows.ts,
+// which upserts each workflow in the vendor under the same key) and the
+// preference category it belongs to. In Knock the category is tagged on the
+// workflow itself and evaluated per recipient at delivery time; the fake
+// below mirrors those semantics for tests. Adding a Notification means
+// adding its entry here; the workflow keys and category ids are used as the
+// vendor's keys verbatim — there is deliberately no identity mapping.
+export const WORKFLOW_CATEGORIES = {
   "refund-request-raised": "refund-request-updates",
   "refund-request-open": "open-refund-requests",
   "refund-request-approved": "refund-request-updates",
@@ -67,7 +58,9 @@ export const WORKFLOW_CATEGORIES: Record<
   "discussion-reply-created": "discussion-replies",
   "enrollment-created": "enrollments",
   "seat-claimed": "seat-claims",
-};
+} as const satisfies Record<string, NotificationCategoryId>;
+
+export type NotificationWorkflowKey = keyof typeof WORKFLOW_CATEGORIES;
 
 export type NotificationTrigger = {
   workflow: NotificationWorkflowKey;
@@ -94,20 +87,12 @@ export interface NotificationsPort {
 }
 
 // ─── Knock adapter ───
-// The only code that speaks Knock's keys: category ids and the feed channel
-// map to the vendor's category keys and in-app feed channel type, and
-// Cadence user ids become strings. No code outside this section touches
-// Knock. Untested by design — tests assert on the fake below instead, the
-// way the Postmark transport is never exercised in vitest.
-
-const KNOCK_CATEGORY_KEYS: Record<NotificationCategoryId, string> = {
-  "refund-request-updates": "refund-request-updates",
-  "open-refund-requests": "open-refund-requests",
-  "seat-claims": "seat-claims",
-  enrollments: "enrollments",
-  "discussion-questions": "discussion-questions",
-  "discussion-replies": "discussion-replies",
-};
+// The only code that speaks Knock: Cadence's category and workflow keys are
+// the vendor's keys verbatim (see the catalogue above), the feed channel is
+// the vendor's in-app feed channel type, and Cadence user ids become
+// strings. No code outside this section touches Knock. Untested by design —
+// tests assert on the fake below instead, the way the Postmark transport is
+// never exercised in vitest.
 
 const KNOCK_FEED_CHANNEL_TYPE = "in_app_feed";
 
@@ -136,9 +121,9 @@ export function translateKnockPreferences(
 ): NotificationPreferences {
   const preferences: NotificationPreferences = {};
   for (const category of Object.keys(
-    KNOCK_CATEGORY_KEYS
+    DEFAULT_NOTIFICATION_PREFERENCES
   ) as NotificationCategoryId[]) {
-    const setting = set?.categories?.[KNOCK_CATEGORY_KEYS[category]];
+    const setting = set?.categories?.[category];
     if (setting === undefined) continue;
     if (typeof setting === "boolean") {
       preferences[category] = setting;
@@ -151,17 +136,6 @@ export function translateKnockPreferences(
   }
   return preferences;
 }
-
-const KNOCK_WORKFLOW_KEYS: Record<NotificationWorkflowKey, string> = {
-  "refund-request-raised": "refund-request-raised",
-  "refund-request-open": "refund-request-open",
-  "refund-request-approved": "refund-request-approved",
-  "refund-request-declined": "refund-request-declined",
-  "discussion-question-created": "discussion-question-created",
-  "discussion-reply-created": "discussion-reply-created",
-  "enrollment-created": "enrollment-created",
-  "seat-claimed": "seat-claimed",
-};
 
 // Inline identify: upserts the user, so a trigger never fails on a user the
 // sync missed (name/email/avatar are the vendor's standard properties).
@@ -198,7 +172,7 @@ export function knockNotifications(secretKey: string): NotificationsPort {
       > = {};
       for (const [category, on] of Object.entries(preferences)) {
         if (on === undefined) continue;
-        categories[KNOCK_CATEGORY_KEYS[category as NotificationCategoryId]] = {
+        categories[category] = {
           channel_types: { [KNOCK_FEED_CHANNEL_TYPE]: on },
         };
       }
@@ -208,7 +182,7 @@ export function knockNotifications(secretKey: string): NotificationsPort {
     },
     async trigger(input) {
       await knock.workflows.trigger(
-        KNOCK_WORKFLOW_KEYS[input.workflow],
+        input.workflow,
         {
           recipients: input.recipients.map(knockRecipient),
           actor: input.actor ? knockRecipient(input.actor) : null,
