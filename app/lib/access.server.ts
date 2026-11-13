@@ -165,14 +165,15 @@ export async function requireContentAccess(
 
 /**
  * Throws unless the user is the course's own instructor, or an admin.
+ * The returned access always carries a signed-in user's id.
  */
 export async function requireStaff(
   request: Request,
   courseId: number
-): Promise<Access> {
+): Promise<Access & { userId: number }> {
   const access = await getAccess(request, courseId);
 
-  if (!access.userId) {
+  if (access.userId === null) {
     throw data("Select a user from the DevUI panel.", { status: 401 });
   }
 
@@ -180,7 +181,7 @@ export async function requireStaff(
     throw data("Only this course's instructor can do that.", { status: 403 });
   }
 
-  return access;
+  return { ...access, userId: access.userId };
 }
 
 /**
