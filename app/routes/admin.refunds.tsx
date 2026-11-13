@@ -22,10 +22,9 @@ import {
 } from "~/lib/refunds.server";
 import { RULE_BREAK_LABELS } from "~/lib/refund-rules";
 import { sendEmail } from "~/lib/mailer.server";
+import { defaultNotificationsPort } from "~/lib/notifications.server";
 
-const refundFilterSchema = z
-  .nativeEnum(RefundStatus)
-  .catch(RefundStatus.Open);
+const refundFilterSchema = z.nativeEnum(RefundStatus).catch(RefundStatus.Open);
 
 const adminRefundActionSchema = z.discriminatedUnion("intent", [
   z.object({
@@ -106,22 +105,22 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { intent, refundRequestId, note } = parsed.data;
 
-  const result =
-    intent === "approve"
-      ? approveRefundRequest(
-          db,
-          refundRequestId,
-          platformAdmin.id,
-          note || null,
-          new Date()
-        )
-      : declineRefundRequest(
-          db,
-          refundRequestId,
-          platformAdmin.id,
-          note,
-          new Date()
-        );
+  const result = await (intent === "approve"
+    ? approveRefundRequest(
+        db,
+        refundRequestId,
+        platformAdmin.id,
+        note || null,
+        new Date(),
+        defaultNotificationsPort()
+      )
+    : declineRefundRequest(
+        db,
+        refundRequestId,
+        platformAdmin.id,
+        note,
+        new Date()
+      ));
 
   if (!result.ok) {
     return data({ error: result.error }, { status: result.status });
@@ -211,11 +210,7 @@ function formatHours(seconds: number) {
   return `${(seconds / 3600).toFixed(1)}h`;
 }
 
-function Figures({
-  refundRequest,
-}: {
-  refundRequest: RefundRequestForReview;
-}) {
+function Figures({ refundRequest }: { refundRequest: RefundRequestForReview }) {
   const { figures } = refundRequest;
 
   const items =

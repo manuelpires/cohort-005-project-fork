@@ -1,4 +1,13 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { alias } from "drizzle-orm/sqlite-core";
 import * as schema from "~/db/schema";
@@ -220,8 +229,7 @@ function getRefundFigures(db: Queryable, purchase: Purchase): RefundFigures {
 /** What the buyer is told when they can't raise a Refund Request. */
 const RULE_BREAK_ERRORS: Record<RuleBreak, string> = {
   window_closed: `The ${REFUND_WINDOW_DAYS}-day window has closed.`,
-  watched_too_much:
-    "You have watched too much of this course to get a refund.",
+  watched_too_much: "You have watched too much of this course to get a refund.",
   completed_too_much:
     "You have completed too much of this course to request a refund.",
   seat_claimed: "A Team Licence with a claimed Seat cannot be refunded.",
@@ -277,9 +285,75 @@ function getPlatformAdminIds(db: Queryable): number[] {
     .map((row) => row.id);
 }
 
+// What a decision Notification needs, read back after the decision commits.
+type RefundDecisionFacts = {
+  decisionNote: string | null;
+  resolvedByUserId: number | null;
+  buyerId: number;
+  amountPaid: number;
+  courseTitle: string;
+};
+
+function getRefundDecisionFacts(
+  db: Queryable,
+  refundRequestId: number
+): RefundDecisionFacts | undefined {
+  return db
+    .select({
+      decisionNote: refunds.decisionNote,
+      resolvedByUserId: refunds.resolvedByUserId,
+      buyerId: purchases.userId,
+      amountPaid: purchases.amountPaid,
+      courseTitle: courses.title,
+    })
+    .from(refunds)
+    .innerJoin(purchases, eq(refunds.purchaseId, purchases.id))
+    .innerJoin(courses, eq(purchases.courseId, courses.id))
+    .where(eq(refunds.id, refundRequestId))
+    .get();
+}
+
+async function notifyRefundDecision(
+  db: Queryable,
+  refundRequestId: number,
+  decision: "approved" | "declined",
+  notifications: NotificationsPort
+): Promise<void> {
+  const facts = getRefundDecisionFacts(db, refundRequestId);
+  if (!facts) return;
+
+  await triggerNotification(
+    {
+      workflow:
+        decision === "approved"
+          ? "refund-request-approved"
+          : "refund-request-declined",
+      recipientIds: [facts.buyerId],
+      actorId: facts.resolvedByUserId ?? undefined,
+      data: {
+        kind:
+          decision === "approved"
+            ? "refund-request-approved"
+            : "refund-request-declined",
+        refundRequestId,
+        courseTitle: facts.courseTitle,
+        amount: formatPrice(facts.amountPaid),
+        decisionNote: facts.decisionNote,
+        url: "/settings",
+      },
+      idempotencyKey: `refund-${decision}:${refundRequestId}`,
+    },
+    notifications
+  );
+}
+
 // ─── Raising a Refund Request ───
 
-export type Failure = { ok: false; status: 400 | 403 | 404 | 409; error: string };
+export type Failure = {
+  ok: false;
+  status: 400 | 403 | 404 | 409;
+  error: string;
+};
 
 type RefundCheck = { ok: true; purchase: Purchase } | Failure;
 
@@ -562,7 +636,8 @@ export function listRefundRequestsForReview(
       // A Claimed Seat belongs to another student, so the only way out of
       // that request is a decline. See docs/adr/0003.
       canApprove:
-        row.status === RefundStatus.Open && !ruleBreaks.includes("seat_claimed"),
+        row.status === RefundStatus.Open &&
+        !ruleBreaks.includes("seat_claimed"),
     };
   });
 }
@@ -673,14 +748,15 @@ function findOpenRefundRequest(
  * - A Team Licence: its Unclaimed Seats can never be claimed. Refused if any
  *   Seat has been claimed (docs/adr/0003).
  */
-export function approveRefundRequest(
+export async function approveRefundRequest(
   db: Db,
   refundRequestId: number,
   platformAdminId: number,
   note: string | null,
-  now: Date
-): DecisionResult {
-  return db.transaction((tx): DecisionResult => {
+  now: Date,
+  notifications: NotificationsPort
+): Promise<DecisionResult> {
+  const result = db.transaction((tx): DecisionResult => {
     const found = findOpenRefundRequest(tx, refundRequestId);
     if (!found.ok) return found;
 
@@ -744,6 +820,12 @@ export function approveRefundRequest(
       email: buildDecisionEmail(tx, purchase, RefundStatus.Approved, note),
     };
   });
+
+  if (result.ok) {
+    await notifyRefundDecision(db, refundRequestId, "approved", notifications);
+  }
+
+  return result;
 }
 
 /**

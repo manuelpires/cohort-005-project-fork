@@ -120,9 +120,7 @@ export function knockNotifications(secretKey: string): NotificationsPort {
           preferences[category] = setting;
           continue;
         }
-        const channelSetting = setting.channel_types?.[
-          KNOCK_FEED_CHANNEL_TYPE
-        ];
+        const channelSetting = setting.channel_types?.[KNOCK_FEED_CHANNEL_TYPE];
         preferences[category] =
           typeof channelSetting === "boolean" ? channelSetting : false;
       }
@@ -271,10 +269,7 @@ export async function syncNotificationsUser(
     await port.identifyUser(user);
     const existing = await port.getPreferences(user.id);
     if (existing === null) {
-      await port.setPreferences(
-        user.id,
-        DEFAULT_NOTIFICATION_PREFERENCES
-      );
+      await port.setPreferences(user.id, DEFAULT_NOTIFICATION_PREFERENCES);
     }
   } catch (error) {
     console.error(`Notification sync failed for user ${user.id}:`, error);
