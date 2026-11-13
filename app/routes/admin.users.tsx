@@ -20,6 +20,7 @@ import {
 } from "~/components/ui/select";
 import { AlertTriangle, Pencil, Shield, Users } from "lucide-react";
 import { data, isRouteErrorResponse, Link } from "react-router";
+import { syncNotificationsUser } from "~/lib/notifications.server";
 
 const adminUserActionSchema = z.discriminatedUnion("intent", [
   z.object({
@@ -119,7 +120,12 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "update-user") {
     const { userId, name, email } = parsed.data;
     const user = getUserById(userId);
-    updateUser(userId, name, email, user?.bio ?? null);
+    const updatedUser = updateUser(userId, name, email, user?.bio ?? null);
+    // Best-effort: a failing vendor sync is logged and swallowed inside.
+    // The role update below is never synced.
+    if (updatedUser) {
+      await syncNotificationsUser(updatedUser);
+    }
     return { success: true };
   }
 

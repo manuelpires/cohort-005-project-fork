@@ -17,6 +17,7 @@ import { db } from "~/db";
 import { eq } from "drizzle-orm";
 import { formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
+import { syncNotificationsUser } from "~/lib/notifications.server";
 
 const settingsSchema = z.object({
   name: z.string().trim().min(1, "Name cannot be empty."),
@@ -88,12 +89,14 @@ export async function action({ request }: Route.ActionArgs) {
 
   const { name, bio } = parsed.data;
 
-  db
+  const updatedUser = db
     .update(users)
     .set({ name, email: currentUser.email, bio: bio || null })
     .where(eq(users.id, currentUser.id))
     .returning()
     .get();
+  // Best-effort: a failing vendor sync is logged and swallowed inside.
+  await syncNotificationsUser(updatedUser);
   return { success: true };
 }
 

@@ -14,6 +14,7 @@ import {
   QuestionType,
   TeamMemberRole,
 } from "../app/db/schema";
+import { syncNotificationsUser } from "../app/lib/notifications.server";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -268,6 +269,22 @@ async function seed() {
   console.log(
     `Created ${1 + instructorCount + studentCount} users (1 admin, ${instructorCount} instructors, ${studentCount} students).`
   );
+
+  // Sync every seeded user to the notification vendor (identity + default
+  // preferences). Keyless dev syncs nothing (no-op port) and a failing sync
+  // is logged and swallowed inside syncNotificationsUser, so the seed
+  // itself never breaks on the vendor.
+  const seededUsers = [
+    admin,
+    instructor1,
+    instructor2,
+    instructor3,
+    ...allStudents,
+  ];
+  for (const user of seededUsers) {
+    await syncNotificationsUser(user);
+  }
+  console.log(`Synced ${seededUsers.length} users to the notification vendor.`);
 
   // ─── Categories ───
 
