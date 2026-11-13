@@ -9,6 +9,12 @@
 // Postmark token. Tests inject the fake and assert on what it recorded —
 // nothing here touches the network under test.
 //
+// No vendor browser package is used, deliberately: the REST half is three
+// fetch shapes, and the live half is a hand-rolled minimal client for the
+// vendor's Phoenix-protocol socket (see the socket section below) — small
+// enough, and live-verified against the dev environment, that pulling in a
+// vendor SDK for it isn't worth the dependency.
+//
 // Deliberately not named "*.client.ts": React Router's Vite plugin stubs
 // every export of a .client module to undefined during SSR, and the store
 // server-renders inside the layout. The module is browser-first but
@@ -149,7 +155,9 @@ export function describeNotification(
     case "open-refund-request":
       return {
         category: "refund",
-        title: `${actor} requested a ${data.amount} refund`,
+        title: `${actor} requested a ${data.amount} refund on ${
+          text(data.courseTitle) ?? "a course"
+        }`,
         snippet: quoted(text(data.reason)),
       };
     case "refund-request-approved":
@@ -182,7 +190,9 @@ export function describeNotification(
   if (item.workflow === "seat-claimed") {
     return {
       category: "team",
-      title: `${actor} claimed a Seat`,
+      title: `${actor} claimed a Seat in ${
+        text(data.courseTitle) ?? "your course"
+      }`,
       snippet: `${data.seatsLeft} Seats left`,
     };
   }

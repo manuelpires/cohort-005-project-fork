@@ -248,7 +248,7 @@ export async function action({ params, request }: Route.ActionArgs) {
       new Date()
     );
     if (!result.ok) {
-      throw new Error(result.error);
+      throw data(result.error, { status: result.status });
     }
     throw redirect(`/courses/${slug}/welcome`);
   }
@@ -266,7 +266,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     new Date()
   );
   if (!teamResult.ok) {
-    throw new Error(teamResult.error);
+    throw data(teamResult.error, { status: teamResult.status });
   }
   throw redirect(`/team`);
 }

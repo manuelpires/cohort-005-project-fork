@@ -155,15 +155,17 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   const openCount = refundRequests.filter(
     (refundRequest) => refundRequest.status === RefundStatus.Open
   ).length;
-  const fetcher = useFetcher();
+  const fetcher = useFetcher<typeof action>();
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.success) {
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+    const result = fetcher.data;
+    if ("success" in result) {
       toast.success("Profile updated successfully.");
     }
-    if (fetcher.state === "idle" && fetcher.data?.errors) {
-      const firstError = Object.values(fetcher.data.errors)[0] as string | undefined;
+    if ("errors" in result) {
+      const firstError = Object.values(result.errors)[0];
       if (firstError) toast.error(firstError);
     }
   }, [fetcher.state, fetcher.data]);

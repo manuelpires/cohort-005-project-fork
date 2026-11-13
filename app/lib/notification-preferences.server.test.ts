@@ -59,6 +59,27 @@ describe("mergeNotificationPreference", () => {
     });
   });
 
+  it("falls back to the defaults for categories the vendor never reported, instead of writing them off", async () => {
+    const db = createTestDb();
+    const user = await seededUser(db);
+    const notifications = fakeNotifications();
+    // The vendor reported only Enrollments; every other category is absent.
+    await notifications.setPreferences(user.id, { enrollments: true });
+
+    await mergeNotificationPreference(
+      user.id,
+      "discussion-replies",
+      false,
+      notifications
+    );
+
+    expect(notifications.preferenceSets.get(user.id)).toEqual({
+      ...DEFAULT_NOTIFICATION_PREFERENCES,
+      enrollments: true,
+      "discussion-replies": false,
+    });
+  });
+
   it("propagates a failing write so the card can toast and revert", async () => {
     const db = createTestDb();
     const user = await seededUser(db);
