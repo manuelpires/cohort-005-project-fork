@@ -327,20 +327,24 @@ export function noopNotifications(): NotificationsPort {
 
 // ─── Default selection, user sync and best-effort triggers ───
 
-function knockSecretKey(): string | undefined {
-  // Tests never resolve a real adapter: the vendor is observed through the
-  // injected fake, and loadEnvFile below would otherwise find live keys.
+// Reads a Knock env value, loading .env first when needed: Vite doesn't put
+// non-VITE_ vars on process.env. Shared with the feed config module.
+// Tests never resolve live keys.
+export function knockEnv(name: string): string | undefined {
   if (process.env.VITEST) return undefined;
-  if (!process.env.KNOCK_SECRET_API_KEY) {
+  if (!process.env[name]) {
     try {
-      // Vite doesn't put non-VITE_ vars on process.env, so load .env
-      // ourselves. A missing .env just means keyless dev.
+      // A missing .env just means keyless dev.
       process.loadEnvFile(".env");
     } catch {
       return undefined;
     }
   }
-  return process.env.KNOCK_SECRET_API_KEY || undefined;
+  return process.env[name] || undefined;
+}
+
+function knockSecretKey(): string | undefined {
+  return knockEnv("KNOCK_SECRET_API_KEY");
 }
 
 // The port services use when no test injects one: the Knock adapter when the
