@@ -40,6 +40,27 @@ export type NotificationUser = {
   avatarUrl: string | null;
 };
 
+export type NotificationWorkflowKey = "seat-claimed" | "enrollment-created";
+
+// Which preference category each workflow belongs to. In Knock the category
+// is tagged on the workflow itself and evaluated per recipient at delivery
+// time; the fake below mirrors those semantics for tests.
+export const WORKFLOW_CATEGORIES: Record<
+  NotificationWorkflowKey,
+  NotificationCategoryId
+> = {
+  "seat-claimed": "seat-claims",
+  "enrollment-created": "enrollments",
+};
+
+export type NotificationTrigger = {
+  workflow: NotificationWorkflowKey;
+  recipients: number[];
+  actor?: number;
+  data: Record<string, unknown>;
+  idempotencyKey: string;
+};
+
 export interface NotificationsPort {
   identifyUser(user: NotificationUser): Promise<void>;
   getPreferences(userId: number): Promise<NotificationPreferences | null>;
@@ -47,6 +68,7 @@ export interface NotificationsPort {
     userId: number,
     preferences: NotificationPreferences
   ): Promise<void>;
+  trigger(trigger: NotificationTrigger): Promise<void>;
 }
 
 // ─── Knock adapter ───
@@ -66,6 +88,11 @@ const KNOCK_CATEGORY_KEYS: Record<NotificationCategoryId, string> = {
 };
 
 const KNOCK_FEED_CHANNEL_TYPE = "in_app_feed";
+
+const KNOCK_WORKFLOW_KEYS: Record<NotificationWorkflowKey, string> = {
+  "seat-claimed": "seat-claimed",
+  "enrollment-created": "enrollment-created",
+};
 
 export function knockNotifications(secretKey: string): NotificationsPort {
   const knock = new Knock({ apiKey: secretKey });
@@ -91,9 +118,7 @@ export function knockNotifications(secretKey: string): NotificationsPort {
           preferences[category] = setting;
           continue;
         }
-        const channelSetting = setting.channel_types?.[
-          KNOCK_FEED_CHANNEL_TYPE
-        ];
+        const channelSetting = setting.channel_types?.[KNOCK_FEED_CHANNEL_TYPE];
         preferences[category] =
           typeof channelSetting === "boolean" ? channelSetting : false;
       }
@@ -114,10 +139,28 @@ export function knockNotifications(secretKey: string): NotificationsPort {
         categories,
       });
     },
+    async trigger(input) {
+      await knock.workflows.trigger(
+        KNOCK_WORKFLOW_KEYS[input.workflow],
+        {
+          recipients: input.recipients.map(String),
+          actor: input.actor === undefined ? undefined : String(input.actor),
+          data: input.data,
+        },
+        // Knock replays the original response for a repeated key, so a retry
+        // layer added later cannot send duplicate Notifications.
+        { idempotencyKey: input.idempotencyKey }
+      );
+    },
   };
 }
 
 // ─── In-memory fake (tests) and no-op (keyless dev) ───
+
+export type RecordedNotificationTrigger = NotificationTrigger & {
+  deliveredTo: number[];
+  suppressedFor: number[];
+};
 
 export class FakeNotifications implements NotificationsPort {
   readonly users = new Map<number, NotificationUser>();
@@ -126,6 +169,7 @@ export class FakeNotifications implements NotificationsPort {
     userId: number;
     preferences: NotificationPreferences;
   }> = [];
+  readonly triggers: RecordedNotificationTrigger[] = [];
 
   async identifyUser(user: NotificationUser): Promise<void> {
     this.users.set(user.id, user);
@@ -144,6 +188,27 @@ export class FakeNotifications implements NotificationsPort {
     this.preferenceSets.set(userId, preferences);
     this.preferenceWrites.push({ userId, preferences: { ...preferences } });
   }
+
+  async trigger(trigger: NotificationTrigger): Promise<void> {
+    // Vendor semantics: each recipient's preference set is evaluated against
+    // the workflow's category. A recipient with no set (never synced) gets
+    // the workflow's default — delivery. "Off by default" for Enrollments is
+    // written by Cadence's user sync, not by the vendor.
+    const category = WORKFLOW_CATEGORIES[trigger.workflow];
+    const deliveredTo: number[] = [];
+    const suppressedFor: number[] = [];
+    for (const recipient of trigger.recipients) {
+      const muted = this.preferenceSets.get(recipient)?.[category] === false;
+      if (muted) suppressedFor.push(recipient);
+      else deliveredTo.push(recipient);
+    }
+    this.triggers.push({
+      ...trigger,
+      data: { ...trigger.data },
+      deliveredTo,
+      suppressedFor,
+    });
+  }
 }
 
 export function fakeNotifications(): FakeNotifications {
@@ -157,12 +222,16 @@ export function noopNotifications(): NotificationsPort {
       return null;
     },
     async setPreferences() {},
+    async trigger() {},
   };
 }
 
 // ─── Default selection and user sync ───
 
 function knockSecretKey(): string | undefined {
+  // Tests never resolve a real adapter: the vendor is observed through the
+  // injected fake, and loadEnvFile below would otherwise find live keys.
+  if (process.env.VITEST) return undefined;
   if (!process.env.KNOCK_SECRET_API_KEY) {
     try {
       // Vite doesn't put non-VITE_ vars on process.env, so load .env
@@ -175,7 +244,9 @@ function knockSecretKey(): string | undefined {
   return process.env.KNOCK_SECRET_API_KEY || undefined;
 }
 
-function defaultPort(): NotificationsPort {
+// The port services use when no test injects one: the Knock adapter when the
+// secret key is configured, the no-op adapter in keyless dev.
+export function defaultNotificationsPort(): NotificationsPort {
   const secretKey = knockSecretKey();
   return secretKey ? knockNotifications(secretKey) : noopNotifications();
 }
@@ -188,16 +259,13 @@ function defaultPort(): NotificationsPort {
 // it must never fail the action around it.
 export async function syncNotificationsUser(
   user: NotificationUser,
-  port: NotificationsPort = defaultPort()
+  port: NotificationsPort = defaultNotificationsPort()
 ): Promise<void> {
   try {
     await port.identifyUser(user);
     const existing = await port.getPreferences(user.id);
     if (existing === null) {
-      await port.setPreferences(
-        user.id,
-        DEFAULT_NOTIFICATION_PREFERENCES
-      );
+      await port.setPreferences(user.id, DEFAULT_NOTIFICATION_PREFERENCES);
     }
   } catch (error) {
     console.error(`Notification sync failed for user ${user.id}:`, error);

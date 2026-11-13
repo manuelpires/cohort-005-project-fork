@@ -112,7 +112,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   const userCountry = await resolveCountry(request);
-  const result = redeemSeat(
+  const result = await redeemSeat(
     db,
     code,
     currentUserId,

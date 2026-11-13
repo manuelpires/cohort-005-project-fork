@@ -3,6 +3,14 @@ import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
 import { coupons, enrollments, purchases } from "~/db/schema";
 import { getSeatAvailability } from "~/lib/refunds.server";
+import {
+  defaultNotificationsPort,
+  type NotificationsPort,
+} from "./notifications.server";
+import {
+  notifyEnrollmentCreated,
+  notifySeatClaimed,
+} from "./enrollment-notifications.server";
 
 // ─── Seats ───
 // Claiming a Seat on a Team Licence: the claimer spends the Seat's code and
@@ -31,15 +39,18 @@ export type RedeemSeatResult =
  * Team Licence's Unclaimed Seats are on hold while it has an Open Refund
  * Request, and lost once it is approved), the claimer must not already hold
  * an Enrollment on the course, and the claim must come from the purchaser's
- * country.
+ * country. After the write commits, the licence's Team Admin is notified
+ * about the claim and the course's Instructor about the new Enrollment (both
+ * best-effort; the Instructor's stays suppressed until they opt in).
  */
-export function redeemSeat(
+export async function redeemSeat(
   db: Db,
   code: string,
   userId: number,
   userCountry: string,
-  now: Date
-): RedeemSeatResult {
+  now: Date,
+  port: NotificationsPort = defaultNotificationsPort()
+): Promise<RedeemSeatResult> {
   const coupon = getCouponByCode(db, code);
   if (!coupon) {
     return { ok: false, status: 404, error: "Coupon not found" };
@@ -112,6 +123,9 @@ export function redeemSeat(
     })
     .returning()
     .get();
+
+  await notifySeatClaimed(db, coupon.id, port);
+  await notifyEnrollmentCreated(db, enrollment.id, port);
 
   return { ok: true, enrollment };
 }
