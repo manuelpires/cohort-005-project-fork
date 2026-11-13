@@ -8,8 +8,12 @@
 //
 //   KNOCK_FEED_CHANNEL_KEY=<key> KNOCK_SERVICE_TOKEN=<token> npx tsx scripts/knock-proto-provision.ts
 //
-// Idempotent: every write is an upsert, so re-run freely.
-const MAPI = "https://api.knock.app";
+// Idempotent: every write is an upsert, so re-run freely. MAPI writes are
+// drafts until committed — after (re)running, commit so workflows are
+// invokable from the app environment:
+//
+//   npx -y @knocklabs/cli commit -m "PROTOTYPE spike" --service-token="$KNOCK_SERVICE_TOKEN"
+const MAPI = "https://control.knock.app";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -31,7 +35,7 @@ async function mapi(path: string, method: string, body?: unknown) {
   return { status: response.status, body: parsed };
 }
 
-function feedStep(channelKey: string) {
+function feedStep(channelKey: string, actionUrl: string) {
   return {
     type: "channel",
     ref: "feed",
@@ -42,6 +46,7 @@ function feedStep(channelKey: string) {
       // Deliberately trivial: Cadence renders the Notification Feed itself,
       // so the vendor template only has to carry the data.
       markdown_body: "PROTOTYPE {{ workflow.key }} for {{ recipient.name }}",
+      action_url: actionUrl,
     },
   };
 }
@@ -51,6 +56,8 @@ async function main() {
 
   // 1. The feed channel must already exist (channels are dashboard-only).
   const channels = await mapi("/v1/channels?limit=50", "GET");
+  console.log(`channels: ${channels.status}`);
+  if (channels.status >= 300) console.log(JSON.stringify(channels.body, null, 2));
   const feedChannel = (channels.body.entries ?? []).find(
     (c: { key: string; type: string }) =>
       c.key === channelKey && c.type === "in_app_feed"
@@ -64,13 +71,27 @@ async function main() {
   }
   console.log(`Feed channel: ${feedChannel.id} (${feedChannel.key})`);
 
+  // 1b. Preference categories must exist in the catalog before workflows
+  //     reference them.
+  for (const [key, name] of [
+    ["discussions", "Discussions"],
+    ["enrollments", "Enrollments"],
+  ] as const) {
+    const category = await mapi(`/v1/preference_categories/${key}`, "PUT", {
+      name,
+      description: `PROTOTYPE spike category for ${key}`,
+    });
+    console.log(`preference_category ${key}: ${category.status}`);
+    if (category.status >= 300) console.log(JSON.stringify(category.body, null, 2));
+  }
+
   // 2. Workflows (upsert).
   const discussionReply = await mapi("/v1/workflows/discussion-reply", "PUT", {
     workflow: {
       name: "Discussion Reply",
       description: "PROTOTYPE spike: someone replied to your Discussion Question.",
       categories: ["discussions"],
-      steps: [feedStep(channelKey)],
+      steps: [feedStep(channelKey, "{{ data.lesson_url }}")],
     },
   });
   console.log("discussion-reply:", discussionReply.status);
@@ -81,7 +102,7 @@ async function main() {
       name: "New Enrollment",
       description: "PROTOTYPE spike: a Student enrolled on your course. Off by default, opt-in.",
       categories: ["enrollments"],
-      steps: [feedStep(channelKey)],
+      steps: [feedStep(channelKey, "/courses")],
     },
   });
   console.log("new-enrollment:", newEnrollment.status);
