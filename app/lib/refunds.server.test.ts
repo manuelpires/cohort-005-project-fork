@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { LessonProgressStatus, RefundStatus, UserRole } from "~/db/schema";
 import { fakeNotifications, noopNotifications } from "./notifications.server";
+import type { NotificationsPort } from "./notifications.server";
 import {
   approveRefundRequest,
   checkRefundRequest,
@@ -449,6 +450,34 @@ describe("refund notifications", () => {
       url: null,
     });
     expect(confirmation).not.toHaveProperty("actorId");
+  });
+
+  it("never fails the raise when the notification adapter throws", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const throwing: NotificationsPort = {
+      async identifyUser() {},
+      async getPreferences() {
+        return null;
+      },
+      async setPreferences() {},
+      async trigger() {
+        throw new Error("Knock is down");
+      },
+    };
+    const purchase = buyForSelf(base.user.id);
+
+    const result = await raiseRefundRequest(
+      db,
+      purchase.id,
+      base.user.id,
+      "It was not what I expected.",
+      NOW,
+      throwing
+    );
+
+    expect(result.ok).toBe(true);
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
   });
 });
 

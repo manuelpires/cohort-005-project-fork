@@ -17,7 +17,10 @@ import {
   RefundStatus,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
-import type { NotificationsPort } from "~/lib/notifications.server";
+import {
+  triggerNotification,
+  type NotificationsPort,
+} from "~/lib/notifications.server";
 import {
   REFUND_COMPLETION_LIMIT,
   REFUND_WATCH_LIMIT_SECONDS,
@@ -392,18 +395,21 @@ export async function raiseRefundRequest(
     .returning()
     .get();
 
-  await notifications.trigger({
-    workflow: "refund-request-raised",
-    recipientIds: [buyerId],
-    data: {
-      kind: "refund-request-confirmed",
-      refundRequestId: refundRequest.id,
-      courseTitle: course.title,
-      amount: formatPrice(purchase.amountPaid),
-      url: null,
+  await triggerNotification(
+    {
+      workflow: "refund-request-raised",
+      recipientIds: [buyerId],
+      data: {
+        kind: "refund-request-confirmed",
+        refundRequestId: refundRequest.id,
+        courseTitle: course.title,
+        amount: formatPrice(purchase.amountPaid),
+        url: null,
+      },
+      idempotencyKey: `refund-raised:${refundRequest.id}`,
     },
-    idempotencyKey: `refund-raised:${refundRequest.id}`,
-  });
+    notifications
+  );
 
   return {
     ok: true,

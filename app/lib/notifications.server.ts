@@ -240,6 +240,23 @@ export function defaultNotificationsPort(): NotificationsPort {
   return defaultPort();
 }
 
+// Triggers a Notification through the port. Deliberately best-effort, like
+// a failed sync: the error is caught and logged so a vendor outage can never
+// fail the domain action around it.
+export async function triggerNotification(
+  notification: NotificationTrigger,
+  port: NotificationsPort = defaultPort()
+): Promise<void> {
+  try {
+    await port.trigger(notification);
+  } catch (error) {
+    console.error(
+      `Notification trigger failed (${notification.workflow}):`,
+      error
+    );
+  }
+}
+
 // Identifies a Cadence user to the notification vendor (name, email, avatar
 // as the vendor's standard avatar property) so the feed always shows the
 // current avatar, and writes the default preference set only if the user has

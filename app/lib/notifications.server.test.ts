@@ -3,6 +3,7 @@ import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   fakeNotifications,
   syncNotificationsUser,
+  triggerNotification,
   type NotificationsPort,
 } from "./notifications.server";
 
@@ -12,6 +13,42 @@ const USER = {
   email: "emma.wilson@student.dev",
   avatarUrl: "https://api.dicebear.com/9.x/avataaars/svg?seed=emma",
 };
+
+const TRIGGER = {
+  workflow: "refund-request-raised" as const,
+  recipientIds: [USER.id],
+  data: { kind: "refund-request-confirmed" },
+  idempotencyKey: "refund-raised:1",
+};
+
+describe("triggerNotification", () => {
+  it("records the trigger through the fake port", async () => {
+    const notifications = fakeNotifications();
+
+    await triggerNotification(TRIGGER, notifications);
+
+    expect(notifications.triggers).toEqual([TRIGGER]);
+  });
+
+  it("logs and swallows a failing trigger instead of throwing", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const port: NotificationsPort = {
+      async identifyUser() {},
+      async getPreferences() {
+        return null;
+      },
+      async setPreferences() {},
+      async trigger() {
+        throw new Error("Knock is down");
+      },
+    };
+
+    await expect(triggerNotification(TRIGGER, port)).resolves.toBeUndefined();
+
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+  });
+});
 
 describe("syncNotificationsUser", () => {
   it("identifies the user to the vendor with name, email and avatar", async () => {
