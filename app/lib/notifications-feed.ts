@@ -9,6 +9,12 @@
 // Postmark token. Tests inject the fake and assert on what it recorded —
 // nothing here touches the network under test.
 //
+// No vendor browser package is used, deliberately: the REST half is three
+// fetch shapes, and the live half is a hand-rolled minimal client for the
+// vendor's Phoenix-protocol socket (see the socket section below) — small
+// enough, and live-verified against the dev environment, that pulling in a
+// vendor SDK for it isn't worth the dependency.
+//
 // Deliberately not named "*.client.ts": React Router's Vite plugin stubs
 // every export of a .client module to undefined during SSR, and the store
 // server-renders inside the layout. The module is browser-first but
