@@ -11,6 +11,11 @@ import {
   teams,
   TeamMemberRole,
 } from "~/db/schema";
+import {
+  defaultNotificationsPort,
+  type NotificationsPort,
+} from "./notifications.server";
+import { notifyEnrollmentCreated } from "./enrollment-notifications.server";
 
 // ─── Enrollments ───
 // How a Student gets their place on a course: buying an Individual Purchase
@@ -46,16 +51,19 @@ export type EnrollOnPurchaseResult =
 
 /**
  * An Individual Purchase: records the payment and gives the buyer their
- * Enrollment. A Student has at most one Enrollment per course.
+ * Enrollment. A Student has at most one Enrollment per course. After the
+ * write commits, the course's Instructor is notified about the new Enrollment
+ * (best-effort, suppressed while their Enrollments preference is off).
  */
-export function enrollOnPurchase(
+export async function enrollOnPurchase(
   db: Db,
   userId: number,
   courseId: number,
   amountPaid: number,
   country: string | null,
-  now: Date
-): EnrollOnPurchaseResult {
+  now: Date,
+  port: NotificationsPort = defaultNotificationsPort()
+): Promise<EnrollOnPurchaseResult> {
   if (findEnrollment(db, userId, courseId)) {
     return {
       ok: false,
@@ -91,6 +99,8 @@ export function enrollOnPurchase(
     .returning()
     .get();
 
+  await notifyEnrollmentCreated(db, enrollment.id, port);
+
   return { ok: true, purchase, enrollment };
 }
 
@@ -106,17 +116,19 @@ export type PurchaseTeamLicenceResult =
 /**
  * A Team Licence: one payment that grants Seats, not an Enrollment — the
  * buyer can't take the course through it. The buyer becomes the Team Admin
- * of the licence's team.
+ * of the licence's team. Buying the licence alone notifies nobody; each Seat
+ * claim does, through seats.server.
  */
-export function purchaseTeamLicence(
+export async function purchaseTeamLicence(
   db: Db,
   userId: number,
   courseId: number,
   amountPaid: number,
   country: string | null,
   quantity: number,
-  now: Date
-): PurchaseTeamLicenceResult {
+  now: Date,
+  port: NotificationsPort = defaultNotificationsPort()
+): Promise<PurchaseTeamLicenceResult> {
   const course = db
     .select()
     .from(courses)

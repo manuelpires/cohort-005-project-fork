@@ -76,11 +76,11 @@ function addStudent(name: string) {
 }
 
 describe("redeeming a Seat", () => {
-  it("claims an available Seat and enrolls the claimer", () => {
+  it("claims an available Seat and enrolls the claimer", async () => {
     const { codes } = buySeats(2, "PT");
     const claimer = addStudent("Carla");
 
-    const result = redeemSeat(db, codes[0], claimer.id, "PT", NOW);
+    const result = await redeemSeat(db, codes[0], claimer.id, "PT", NOW);
 
     if (!result.ok) throw new Error(result.error);
 
@@ -96,10 +96,10 @@ describe("redeeming a Seat", () => {
     });
   });
 
-  it("rejects an unknown code", () => {
+  it("rejects an unknown code", async () => {
     const claimer = addStudent("Carla");
 
-    const result = redeemSeat(db, "NOPE", claimer.id, "PT", NOW);
+    const result = await redeemSeat(db, "NOPE", claimer.id, "PT", NOW);
 
     expect(result).toMatchObject({
       ok: false,
@@ -108,12 +108,24 @@ describe("redeeming a Seat", () => {
     });
   });
 
-  it("rejects a Seat that has already been claimed", () => {
+  it("rejects a Seat that has already been claimed", async () => {
     const { codes } = buySeats(1, "PT");
-    const first = redeemSeat(db, codes[0], addStudent("Carla").id, "PT", NOW);
+    const first = await redeemSeat(
+      db,
+      codes[0],
+      addStudent("Carla").id,
+      "PT",
+      NOW
+    );
     if (!first.ok) throw new Error(first.error);
 
-    const result = redeemSeat(db, codes[0], addStudent("Diogo").id, "PT", NOW);
+    const result = await redeemSeat(
+      db,
+      codes[0],
+      addStudent("Diogo").id,
+      "PT",
+      NOW
+    );
 
     expect(result).toMatchObject({
       ok: false,
@@ -134,7 +146,13 @@ describe("redeeming a Seat", () => {
     );
     if (!raised.ok) throw new Error(raised.error);
 
-    const result = redeemSeat(db, codes[0], addStudent("Carla").id, "PT", NOW);
+    const result = await redeemSeat(
+      db,
+      codes[0],
+      addStudent("Carla").id,
+      "PT",
+      NOW
+    );
 
     expect(result).toMatchObject({
       ok: false,
@@ -144,14 +162,20 @@ describe("redeeming a Seat", () => {
     });
   });
 
-  it("rejects a Seat from an approved refund", () => {
+  it("rejects a Seat from an approved refund", async () => {
     const { codes } = buySeats(1, "PT");
     db.update(schema.coupons)
       .set({ refundedAt: NOW.toISOString() })
       .where(eq(schema.coupons.code, codes[0]))
       .run();
 
-    const result = redeemSeat(db, codes[0], addStudent("Carla").id, "PT", NOW);
+    const result = await redeemSeat(
+      db,
+      codes[0],
+      addStudent("Carla").id,
+      "PT",
+      NOW
+    );
 
     expect(result).toMatchObject({
       ok: false,
@@ -161,13 +185,13 @@ describe("redeeming a Seat", () => {
     });
   });
 
-  it("rejects a claimer who already holds an Enrollment", () => {
+  it("rejects a claimer who already holds an Enrollment", async () => {
     const { codes } = buySeats(2, "PT");
     const claimer = addStudent("Carla");
-    const first = redeemSeat(db, codes[0], claimer.id, "PT", NOW);
+    const first = await redeemSeat(db, codes[0], claimer.id, "PT", NOW);
     if (!first.ok) throw new Error(first.error);
 
-    const result = redeemSeat(db, codes[1], claimer.id, "PT", NOW);
+    const result = await redeemSeat(db, codes[1], claimer.id, "PT", NOW);
 
     expect(result).toMatchObject({
       ok: false,
@@ -176,10 +200,16 @@ describe("redeeming a Seat", () => {
     });
   });
 
-  it("rejects a claim from another country than the purchase", () => {
+  it("rejects a claim from another country than the purchase", async () => {
     const { codes } = buySeats(1, "PT");
 
-    const result = redeemSeat(db, codes[0], addStudent("Carla").id, "US", NOW);
+    const result = await redeemSeat(
+      db,
+      codes[0],
+      addStudent("Carla").id,
+      "US",
+      NOW
+    );
 
     expect(result).toMatchObject({
       ok: false,
@@ -189,11 +219,11 @@ describe("redeeming a Seat", () => {
     });
   });
 
-  it("allows a Seat bought without a country", () => {
+  it("allows a Seat bought without a country", async () => {
     const { codes } = buySeats(1, null);
     const claimer = addStudent("Carla");
 
-    const result = redeemSeat(db, codes[0], claimer.id, "US", NOW);
+    const result = await redeemSeat(db, codes[0], claimer.id, "US", NOW);
 
     expect(result.ok).toBe(true);
   });

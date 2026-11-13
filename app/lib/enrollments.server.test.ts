@@ -19,8 +19,8 @@ beforeEach(() => {
 });
 
 describe("enrolling on an Individual Purchase", () => {
-  it("records the Purchase and enrolls the buyer", () => {
-    const result = enrollOnPurchase(
+  it("records the Purchase and enrolls the buyer", async () => {
+    const result = await enrollOnPurchase(
       db,
       base.user.id,
       base.course.id,
@@ -46,8 +46,8 @@ describe("enrolling on an Individual Purchase", () => {
     expect(isUserEnrolled(db, base.user.id, base.course.id)).toBe(true);
   });
 
-  it("refuses a buyer who already holds an Enrollment", () => {
-    const first = enrollOnPurchase(
+  it("refuses a buyer who already holds an Enrollment", async () => {
+    const first = await enrollOnPurchase(
       db,
       base.user.id,
       base.course.id,
@@ -57,7 +57,7 @@ describe("enrolling on an Individual Purchase", () => {
     );
     if (!first.ok) throw new Error(first.error);
 
-    const again = enrollOnPurchase(
+    const again = await enrollOnPurchase(
       db,
       base.user.id,
       base.course.id,
@@ -73,8 +73,8 @@ describe("enrolling on an Individual Purchase", () => {
     });
   });
 
-  it("refuses a course that doesn't exist", () => {
-    const result = enrollOnPurchase(
+  it("refuses a course that doesn't exist", async () => {
+    const result = await enrollOnPurchase(
       db,
       base.user.id,
       base.course.id + 1000,
@@ -92,8 +92,8 @@ describe("enrolling on an Individual Purchase", () => {
 });
 
 describe("buying a Team Licence", () => {
-  it("grants Seats without enrolling the buyer", () => {
-    const result = purchaseTeamLicence(
+  it("grants Seats without enrolling the buyer", async () => {
+    const result = await purchaseTeamLicence(
       db,
       base.user.id,
       base.course.id,

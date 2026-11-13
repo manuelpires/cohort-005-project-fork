@@ -91,7 +91,9 @@ describe("triggerNotification", () => {
 
     await triggerNotification(trigger, notifications);
 
-    expect(notifications.triggers).toEqual([trigger]);
+    expect(notifications.triggers).toEqual([
+      { ...trigger, deliveredTo: [USER.id], suppressedFor: [] },
+    ]);
   });
 
   it("records a discussion trigger and lands it in the feed", async () => {
@@ -129,6 +131,62 @@ describe("triggerNotification", () => {
 
     expect(logged).toHaveBeenCalledTimes(1);
     logged.mockRestore();
+  });
+});
+
+describe("triggering a notification workflow through the fake", () => {
+  it("delivers to a recipient who has the workflow's category on", async () => {
+    const notifications = fakeNotifications();
+    await notifications.setPreferences(USER.id, { enrollments: true });
+
+    await notifications.trigger({
+      workflow: "enrollment-created",
+      recipients: [USER],
+      actor: { ...USER, id: 2 },
+      data: { studentName: "Emma Wilson", courseTitle: "Test Course" },
+      idempotencyKey: "enrollment-created:1",
+    });
+
+    expect(notifications.triggers).toHaveLength(1);
+    expect(notifications.triggers[0]).toMatchObject({
+      workflow: "enrollment-created",
+      recipients: [USER],
+      actor: { ...USER, id: 2 },
+      data: { studentName: "Emma Wilson", courseTitle: "Test Course" },
+      idempotencyKey: "enrollment-created:1",
+      deliveredTo: [USER.id],
+      suppressedFor: [],
+    });
+  });
+
+  it("suppresses a recipient who muted the workflow's category", async () => {
+    const notifications = fakeNotifications();
+    await notifications.setPreferences(USER.id, { enrollments: false });
+
+    await notifications.trigger({
+      workflow: "enrollment-created",
+      recipients: [USER],
+      data: {},
+      idempotencyKey: "enrollment-created:1",
+    });
+
+    expect(notifications.triggers[0].deliveredTo).toEqual([]);
+    expect(notifications.triggers[0].suppressedFor).toEqual([USER.id]);
+    expect(notifications.messagesFor(USER.id)).toHaveLength(0);
+  });
+
+  it("delivers to a recipient with no preference set yet", async () => {
+    const notifications = fakeNotifications();
+
+    await notifications.trigger({
+      workflow: "seat-claimed",
+      recipients: [USER],
+      data: {},
+      idempotencyKey: "seat-claimed:1",
+    });
+
+    expect(notifications.triggers[0].deliveredTo).toEqual([USER.id]);
+    expect(notifications.triggers[0].suppressedFor).toEqual([]);
   });
 });
 

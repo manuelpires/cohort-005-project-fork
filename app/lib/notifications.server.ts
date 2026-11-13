@@ -48,7 +48,26 @@ export type NotificationWorkflowKey =
   | "refund-request-approved"
   | "refund-request-declined"
   | "discussion-question-created"
-  | "discussion-reply-created";
+  | "discussion-reply-created"
+  | "enrollment-created"
+  | "seat-claimed";
+
+// Which preference category each workflow belongs to. In Knock the category
+// is tagged on the workflow itself and evaluated per recipient at delivery
+// time; the fake below mirrors those semantics for tests.
+export const WORKFLOW_CATEGORIES: Record<
+  NotificationWorkflowKey,
+  NotificationCategoryId
+> = {
+  "refund-request-raised": "refund-request-updates",
+  "refund-request-open": "open-refund-requests",
+  "refund-request-approved": "refund-request-updates",
+  "refund-request-declined": "refund-request-updates",
+  "discussion-question-created": "discussion-questions",
+  "discussion-reply-created": "discussion-replies",
+  "enrollment-created": "enrollments",
+  "seat-claimed": "seat-claims",
+};
 
 export type NotificationTrigger = {
   workflow: NotificationWorkflowKey;
@@ -99,6 +118,8 @@ const KNOCK_WORKFLOW_KEYS: Record<NotificationWorkflowKey, string> = {
   "refund-request-declined": "refund-request-declined",
   "discussion-question-created": "discussion-question-created",
   "discussion-reply-created": "discussion-reply-created",
+  "enrollment-created": "enrollment-created",
+  "seat-claimed": "seat-claimed",
 };
 
 // Inline identify: upserts the user, so a trigger never fails on a user the
@@ -191,15 +212,20 @@ export function knockNotifications(secretKey: string): NotificationsPort {
 
 // ─── In-memory fake (tests) and no-op (keyless dev) ───
 
-// One feed row per recipient, mirroring what the vendor stores: the data
-// snapshot from trigger time and whether the row has been archived out of
-// the feed.
+// One feed row per delivered recipient, mirroring what the vendor stores:
+// the data snapshot from trigger time and whether the row has been archived
+// out of the feed. Suppressed recipients never get a row.
 export type FakeNotificationMessage = {
   id: string;
   workflow: NotificationWorkflowKey;
   recipientId: number;
   data: Record<string, unknown>;
   archivedAt: Date | null;
+};
+
+export type RecordedNotificationTrigger = NotificationTrigger & {
+  deliveredTo: number[];
+  suppressedFor: number[];
 };
 
 export class FakeNotifications implements NotificationsPort {
@@ -209,7 +235,7 @@ export class FakeNotifications implements NotificationsPort {
     userId: number;
     preferences: NotificationPreferences;
   }> = [];
-  readonly triggers: NotificationTrigger[] = [];
+  readonly triggers: RecordedNotificationTrigger[] = [];
   readonly messages: FakeNotificationMessage[] = [];
   private nextMessageId = 1;
 
@@ -232,16 +258,31 @@ export class FakeNotifications implements NotificationsPort {
   }
 
   async trigger(input: NotificationTrigger): Promise<void> {
+    // Vendor semantics: each recipient's preference set is evaluated against
+    // the workflow's category. A recipient with no set (never synced) gets
+    // the workflow's default — delivery. "Off by default" for Enrollments is
+    // written by Cadence's user sync, not by the vendor.
+    const category = WORKFLOW_CATEGORIES[input.workflow];
+    const deliveredTo: number[] = [];
+    const suppressedFor: number[] = [];
+    for (const recipient of input.recipients) {
+      const muted =
+        this.preferenceSets.get(recipient.id)?.[category] === false;
+      if (muted) suppressedFor.push(recipient.id);
+      else deliveredTo.push(recipient.id);
+    }
     this.triggers.push({
       ...input,
       recipients: [...input.recipients],
       data: { ...input.data },
+      deliveredTo,
+      suppressedFor,
     });
-    for (const recipient of input.recipients) {
+    for (const recipientId of deliveredTo) {
       this.messages.push({
         id: `fake-message-${this.nextMessageId++}`,
         workflow: input.workflow,
-        recipientId: recipient.id,
+        recipientId,
         data: { ...input.data },
         archivedAt: null,
       });
@@ -287,6 +328,9 @@ export function noopNotifications(): NotificationsPort {
 // ─── Default selection, user sync and best-effort triggers ───
 
 function knockSecretKey(): string | undefined {
+  // Tests never resolve a real adapter: the vendor is observed through the
+  // injected fake, and loadEnvFile below would otherwise find live keys.
+  if (process.env.VITEST) return undefined;
   if (!process.env.KNOCK_SECRET_API_KEY) {
     try {
       // Vite doesn't put non-VITE_ vars on process.env, so load .env
@@ -299,6 +343,8 @@ function knockSecretKey(): string | undefined {
   return process.env.KNOCK_SECRET_API_KEY || undefined;
 }
 
+// The port services use when no test injects one: the Knock adapter when the
+// secret key is configured, the no-op adapter in keyless dev.
 export function defaultNotificationsPort(): NotificationsPort {
   const secretKey = knockSecretKey();
   return secretKey ? knockNotifications(secretKey) : noopNotifications();

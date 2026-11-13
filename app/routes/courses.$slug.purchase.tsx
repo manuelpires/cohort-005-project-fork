@@ -239,7 +239,7 @@ export async function action({ params, request }: Route.ActionArgs) {
     if (isUserEnrolled(db, currentUserId, course.id)) {
       throw redirect(`/courses/${slug}`);
     }
-    const result = enrollOnPurchase(
+    const result = await enrollOnPurchase(
       db,
       currentUserId,
       course.id,
@@ -256,7 +256,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   // Team purchase — user does NOT get enrolled themselves
   const { quantity } = parsed.data;
   const totalPrice = pppPrice * quantity;
-  const teamResult = purchaseTeamLicence(
+  const teamResult = await purchaseTeamLicence(
     db,
     currentUserId,
     course.id,
