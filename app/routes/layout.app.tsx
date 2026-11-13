@@ -5,6 +5,8 @@ import { DevUI } from "~/components/dev-ui";
 import { Toaster } from "sonner";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
+import { getNotificationFeedConfig } from "~/lib/notifications-feed.server";
+import { NotificationFeedProvider } from "~/components/notification-feed";
 import { eq, and, or, sql, desc } from "drizzle-orm";
 import { db } from "~/db";
 import {
@@ -213,6 +215,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     countryTierInfo,
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
+    // Signed for whoever the session (or the DevUI switcher) says is
+    // current; switching is a full-page reload, so this re-signs per user.
+    notificationFeed: currentUserId
+      ? await getNotificationFeedConfig(currentUserId)
+      : null,
   };
 }
 
@@ -225,26 +232,29 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    notificationFeed,
   } = loaderData;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        currentUser={currentUser}
-        recentCourses={recentCourses}
-        isTeamAdmin={userIsTeamAdmin}
-      />
-      <main className="flex-1 overflow-y-auto">
-        <Outlet />
-      </main>
-      <DevUI
-        users={users}
-        currentUser={currentUser}
-        devCountry={devCountry}
-        countryTierInfo={countryTierInfo}
-        countries={countries}
-      />
-      <Toaster position="bottom-right" richColors closeButton />
-    </div>
+    <NotificationFeedProvider config={notificationFeed}>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar
+          currentUser={currentUser}
+          recentCourses={recentCourses}
+          isTeamAdmin={userIsTeamAdmin}
+        />
+        <main className="flex-1 overflow-y-auto">
+          <Outlet />
+        </main>
+        <DevUI
+          users={users}
+          currentUser={currentUser}
+          devCountry={devCountry}
+          countryTierInfo={countryTierInfo}
+          countries={countries}
+        />
+        <Toaster position="bottom-right" richColors closeButton />
+      </div>
+    </NotificationFeedProvider>
   );
 }
