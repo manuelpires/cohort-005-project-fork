@@ -24,7 +24,7 @@ import {
   quizAttempts,
 } from "~/db/schema";
 import { eq, and, or, sql, desc, gt, gte } from "drizzle-orm";
-import { formatDuration, formatPrice } from "~/lib/utils";
+import { formatDuration } from "~/lib/utils";
 import { MonacoMarkdownEditor } from "~/components/monaco-markdown-editor";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
@@ -851,7 +851,7 @@ export async function action({ params, request }: Route.ActionArgs) {
 
 function InlineEditableTitle({
   value,
-  courseId,
+  courseId: _courseId,
 }: {
   value: string;
   courseId: number;
@@ -935,7 +935,7 @@ function InlineEditableTitle({
 
 function InlineEditableDescription({
   value,
-  courseId,
+  courseId: _courseId,
 }: {
   value: string;
   courseId: number;
@@ -1327,7 +1327,7 @@ function InlineEditableLessonTitle({
 
 function DeleteLessonButton({
   lessonId,
-  lessonTitle,
+  lessonTitle: _lessonTitle,
 }: {
   lessonId: number;
   lessonTitle: string;
@@ -1474,19 +1474,6 @@ function AddLessonForm({ moduleId }: { moduleId: number }) {
       </Button>
     </div>
   );
-}
-
-function statusBadgeColor(status: string) {
-  switch (status) {
-    case CourseStatus.Published:
-      return "text-green-800 dark:text-green-400";
-    case CourseStatus.Draft:
-      return "text-yellow-800 dark:text-yellow-400";
-    case CourseStatus.Archived:
-      return "text-gray-800 dark:text-gray-400";
-    default:
-      return "";
-  }
 }
 
 export default function InstructorCourseEditor({

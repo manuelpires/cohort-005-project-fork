@@ -1,4 +1,4 @@
-import { Form, Link, useSearchParams, useNavigation, isRouteErrorResponse } from "react-router";
+import { Form, Link, useNavigation, isRouteErrorResponse } from "react-router";
 import type { Route } from "./+types/courses";
 import { db } from "~/db";
 import {
@@ -377,7 +377,6 @@ export function HydrateFallback() {
 
 export default function CourseCatalog({ loaderData }: Route.ComponentProps) {
   const { courses, categories, search, category, currentUserId } = loaderData;
-  const [searchParams] = useSearchParams();
   const navigation = useNavigation();
   const isSearching =
     navigation.state === "loading" &&

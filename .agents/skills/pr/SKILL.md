@@ -32,6 +32,10 @@ Use this template for writing the PR body:
 <optional: potential ramifications of merge>
 ```
 
+## Before writing
+
+If the PR implements an issue or spec, fetch it and keep it beside the diff. Check every Summary claim against it: the diff shows what the code does, the spec says what it was allowed to do. A claim about who can see what — privacy, access, caps — is a spec claim; if no issue exists to check it against, say the body is unverified against a spec rather than asserting the behaviour as a feature.
+
 ## Sections
 
 Skip all preambles and keep prose brief. Use the user's domain language from `GLOSSARY.md`.
@@ -166,5 +170,7 @@ Execution-based evidence is A-tier. Test results, console output. Show the exact
 ### Merge Danger
 
 Describe whether it's a one-way or two-way door. You can walk back through two-way doors, but not one-way doors. A PR that is cheap to roll back is lower risk. Changes that involve destructive actions or hard-to-reverse decisions are one-way doors.
+
+Give one answer. When rollback paths disagree — cheap for the code, expensive for the data — the worst path sets the door.
 
 The blast radius is the potential impact or scope of the changes introduced by this PR. Consider all possibilities. Examples are layout shift, breakages for consumers, mobile responsiveness, etc.

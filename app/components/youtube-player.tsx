@@ -65,7 +65,6 @@ function loadYouTubeAPI(): Promise<void> {
 export function YouTubePlayer({
   videoUrl,
   lessonId,
-  title,
   startPosition,
   durationMinutes,
   watchProgress: initialProgress,
@@ -77,7 +76,7 @@ export function YouTubePlayer({
   const playerRef = useRef<YT.Player | null>(null);
   const trackingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [progress, setProgress] = useState(initialProgress);
-  const [videoDuration, setVideoDuration] = useState(
+  const [, setVideoDuration] = useState(
     durationMinutes ? durationMinutes * 60 : 0
   );
 
