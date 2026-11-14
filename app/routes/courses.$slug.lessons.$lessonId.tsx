@@ -77,10 +77,6 @@ const lessonParamsSchema = z.object({
   lessonId: z.coerce.number().int(),
 });
 
-const markCompleteSchema = z.object({
-  intent: z.literal("mark-complete"),
-});
-
 const createCommentSchema = z.object({
   intent: z.literal("create-comment"),
   body: z.string(),

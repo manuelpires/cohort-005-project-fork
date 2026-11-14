@@ -798,7 +798,7 @@ function renderAnthropicResponse(raw: string): string {
   return parts.join("\n\n");
 }
 
-function renderOpenAIResponse(raw: string, reqJson: any): string {
+function renderOpenAIResponse(raw: string, _reqJson: any): string {
   const events = sseData(raw);
   const isResponses = events.some(
     (e) => typeof e.type === "string" && e.type.startsWith("response.")

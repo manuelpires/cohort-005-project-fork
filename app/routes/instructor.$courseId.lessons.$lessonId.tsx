@@ -23,7 +23,6 @@ import {
   ArrowLeft,
   ClipboardList,
   ExternalLink,
-  Github,
   Save,
 } from "lucide-react";
 import { data, isRouteErrorResponse } from "react-router";

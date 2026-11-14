@@ -177,27 +177,6 @@ function createQuiz(lessonId: number, title: string, passingScore: number) {
     .get();
 }
 
-function updateQuiz(
-  id: number,
-  title: string | null,
-  passingScore: number | null
-) {
-  const updates: Record<string, unknown> = {};
-  if (title !== null) updates.title = title;
-  if (passingScore !== null) updates.passingScore = passingScore;
-
-  if (Object.keys(updates).length === 0) {
-    return getQuizById(id);
-  }
-
-  return db
-    .update(quizzes)
-    .set(updates)
-    .where(eq(quizzes.id, id))
-    .returning()
-    .get();
-}
-
 function deleteQuiz(id: number) {
   // Cascade: delete answers -> attempts -> options -> questions -> quiz
   const questions = getQuestionsByQuiz(id);
@@ -238,15 +217,6 @@ function createQuestion(
   return db
     .insert(quizQuestions)
     .values({ quizId, questionText, questionType, position: pos })
-    .returning()
-    .get();
-}
-
-function deleteQuestion(id: number) {
-  db.delete(quizOptions).where(eq(quizOptions.questionId, id)).run();
-  return db
-    .delete(quizQuestions)
-    .where(eq(quizQuestions.id, id))
     .returning()
     .get();
 }
@@ -483,7 +453,7 @@ function StepIndicator({
 export default function QuizBuilderWizard({
   loaderData,
 }: Route.ComponentProps) {
-  const { course, lesson, module: mod, existingQuiz } = loaderData;
+  const { course, lesson, existingQuiz } = loaderData;
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
