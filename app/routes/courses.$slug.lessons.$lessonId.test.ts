@@ -325,11 +325,11 @@ describe("lesson action", () => {
       .from(schema.comments)
       .all()
       .find((c) => c.body === "Seeded question about the lesson");
-    expect(seeded).toBeDefined();
+    if (!seeded) throw new Error("Seeded comment not found");
 
     const request = await postAs(instructor.id, {
       intent: "delete-comment",
-      commentId: String(seeded!.id),
+      commentId: String(seeded.id),
     });
 
     await expect(action(actionArgs(request))).resolves.toEqual({ ok: true });

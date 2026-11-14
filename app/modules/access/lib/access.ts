@@ -2,10 +2,11 @@ import { data } from "react-router";
 import { eq, and } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { UserRole, users, courses, enrollments, purchases } from "~/db/schema";
+import { UserRole, users, courses, purchases } from "~/db/schema";
 import { getCurrentUserId } from "~/lib/session";
 import { resolveCountry } from "~/lib/country.server";
 import { checkPppAccess } from "~/lib/ppp";
+import { isEnrolled } from "~/lib/enrollments.server";
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
@@ -58,18 +59,6 @@ function getCourseById(database: Db, id: number) {
   return database.select().from(courses).where(eq(courses.id, id)).get();
 }
 
-function isUserEnrolled(database: Db, userId: number, courseId: number) {
-  return (
-    database
-      .select()
-      .from(enrollments)
-      .where(
-        and(eq(enrollments.userId, userId), eq(enrollments.courseId, courseId))
-      )
-      .get() !== undefined
-  );
-}
-
 function findPurchase(database: Db, userId: number, courseId: number) {
   // KNOWN AMBIGUITY, preserved deliberately: a user can hold more than one
   // Purchase for the same course — a Team Admin also holds their own
@@ -107,7 +96,7 @@ export async function getAccess(
   // check feeds the staff flag and stays inside.
   const isOwningInstructor = course?.instructorId === userId;
   const isStaff = isAdmin || isOwningInstructor;
-  const enrolled = isUserEnrolled(database, userId, courseId);
+  const enrolled = isEnrolled(database, userId, courseId);
 
   // PPP only restricts students who bought at a discount — staff are exempt.
   let ppp = {
@@ -151,6 +140,17 @@ export async function requireUserId(request: Request): Promise<number> {
 }
 
 /**
+ * Throws 401 unless the access snapshot belongs to a signed-in user.
+ */
+function requireSignedIn(
+  access: Access | SignedOutAccess
+): asserts access is Access {
+  if (!access.userId) {
+    throw data("Select a user from the DevUI panel.", { status: 401 });
+  }
+}
+
+/**
  * Throws 401 when signed out, 403 when the user can't see the course's
  * content. Use in actions — loader guards don't protect actions.
  */
@@ -160,10 +160,7 @@ export async function requireContentAccess(
   courseId: number
 ): Promise<Access> {
   const access = await getAccess(database, request, courseId);
-
-  if (!access.userId) {
-    throw data("Select a user from the DevUI panel.", { status: 401 });
-  }
+  requireSignedIn(access);
 
   if (!access.canViewContent) {
     throw data("You must be enrolled in this course.", { status: 403 });
@@ -181,10 +178,7 @@ export async function requireStaff(
   courseId: number
 ): Promise<Access> {
   const access = await getAccess(database, request, courseId);
-
-  if (!access.userId) {
-    throw data("Select a user from the DevUI panel.", { status: 401 });
-  }
+  requireSignedIn(access);
 
   if (!access.isStaff) {
     throw data("Only this course's instructor can do that.", { status: 403 });
