@@ -26,7 +26,7 @@ _Avoid_: Admin (on its own)
 
 **Enrollment**:
 A Student's place on a course, which lets them take it. A Student has at most one Enrollment per course, whether it came from an Individual Purchase or a Claimed Seat.
-_Avoid_: Place on a course, Access
+_Avoid_: Place on a course, Access (the permission, not the place)
 
 **Lapsed**:
 A Student who has lost their Enrollment on a course but still has progress on it.
@@ -34,6 +34,12 @@ A Student who has lost their Enrollment on a course but still has progress on it
 **Watched**:
 Seconds of video a Student has actually played in a course: the furthest point reached in each lesson, added up. Not lessons opened.
 _Avoid_: Viewed, Progress
+
+### Access
+
+**Access**:
+What a person may currently do with a course — read its content, moderate it, or nothing — given who they are, whether they hold an Enrollment, and where they're browsing from. The Enrollment is the place on the course; Access is the permission that follows from it.
+_Avoid_: Permissions, Entitlements
 
 ### Discussions
 
