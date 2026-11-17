@@ -3,7 +3,8 @@ import { createTestDb, seedBaseData, type TestDb } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { UserRole } from "~/db/schema";
 import { plainText } from "~/lib/text";
-import { getNote, listNotes, saveNote } from "./notes.server";
+import { getNote, listNotes, saveNote } from "~/modules/notes/index.server";
+import { MAX_NOTE_LENGTH } from "~/modules/notes";
 
 const NOW = new Date(2026, 9, 6, 12, 0, 0);
 
@@ -117,6 +118,10 @@ describe("saving a Note", () => {
     expect(getNote(db, base.user.id, lessonIds[0])?.body).toBe(
       "# not a heading\n*not bold*"
     );
+  });
+
+  it("exposes the length limit the editor counts against", () => {
+    expect(MAX_NOTE_LENGTH).toBe(2000);
   });
 });
 

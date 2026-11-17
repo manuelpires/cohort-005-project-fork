@@ -3,7 +3,7 @@ import type { Route } from "./+types/saved";
 import { db } from "~/db";
 import { people } from "~/modules/permissions/person.server";
 import { listBookmarks } from "~/lib/bookmarks.server";
-import { listNotes } from "~/lib/notes.server";
+import { listNotes } from "~/modules/notes/index.server";
 import { Card, CardContent } from "~/components/ui/card";
 import { Bookmark, NotebookPen } from "lucide-react";
 import { formatRelativeTime } from "~/lib/utils";

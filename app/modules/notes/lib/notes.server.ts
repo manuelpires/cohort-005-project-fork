@@ -3,7 +3,7 @@ import * as schema from "~/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 import { courses, lessons, modules, notes } from "~/db/schema";
 import { savedLessonColumns } from "~/lib/saved-lesson.server";
-import { MAX_NOTE_LENGTH } from "~/lib/notes";
+import { MAX_NOTE_LENGTH } from "./notes";
 import { plainText } from "~/lib/text";
 
 // Nothing outside the owning Student's Lesson page and Saved page may read a
@@ -11,7 +11,7 @@ import { plainText } from "~/lib/text";
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
-type Note = typeof notes.$inferSelect;
+export type Note = typeof notes.$inferSelect;
 
 /** The Student's Note on the Lesson, if they have written one. */
 export function getNote(
