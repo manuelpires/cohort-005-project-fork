@@ -62,6 +62,17 @@ export function LessonNotesPanel(props: PanelProps) {
   );
 }
 
+/**
+ * Every comment in the thread, replies included — the number the Discussion
+ * tab shows. comments.length only counts questions.
+ */
+function countComments(comments: RenderedComment[]): number {
+  return comments.reduce(
+    (total, comment) => total + 1 + countComments(comment.replies),
+    0
+  );
+}
+
 function NotesAndDiscussionTabs({
   note,
   comments,
@@ -75,11 +86,14 @@ function NotesAndDiscussionTabs({
   draft: string;
   onDraftChange: (draft: string) => void;
 }) {
-  const hasDraft = draft.trim() !== (note?.body ?? "").trim();
+  const hasUnsavedChanges = draft.trim() !== (note?.body ?? "").trim();
 
   return (
     <Tabs defaultValue={note ? "notes" : "discussion"}>
-      <PanelTabs hasDraft={hasDraft} commentCount={comments.length} />
+      <PanelTabs
+        hasUnsavedChanges={hasUnsavedChanges}
+        commentCount={countComments(comments)}
+      />
 
       <TabsContent value="notes" className="mt-4">
         <NoteEditor note={note} draft={draft} onDraftChange={onDraftChange} />
@@ -99,10 +113,10 @@ function NotesAndDiscussionTabs({
 }
 
 function PanelTabs({
-  hasDraft,
+  hasUnsavedChanges,
   commentCount,
 }: {
-  hasDraft: boolean;
+  hasUnsavedChanges: boolean;
   commentCount: number;
 }) {
   return (
@@ -110,8 +124,11 @@ function PanelTabs({
       <TabsTrigger value="notes">
         <NotebookPen className="size-4" />
         Your notes
-        {hasDraft && (
-          <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+        {hasUnsavedChanges && (
+          <>
+            <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+            <span className="sr-only">(unsaved changes)</span>
+          </>
         )}
       </TabsTrigger>
       <TabsTrigger value="discussion">
@@ -139,7 +156,9 @@ function NoteEditor({
   const fetcher = useFetcher<{ ok: boolean; error?: string }>();
   const isSaving = fetcher.state !== "idle";
   const error = fetcher.data?.error;
-  const tooLong = draft.length > MAX_NOTE_LENGTH;
+  // The server validates the trimmed body, so the Save gate trims too — a
+  // draft over the limit only in its trailing whitespace still saves.
+  const tooLong = draft.trim().length > MAX_NOTE_LENGTH;
   const empty = draft.trim().length === 0;
 
   return (
