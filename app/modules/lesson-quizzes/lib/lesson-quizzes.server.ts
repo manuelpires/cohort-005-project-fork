@@ -223,6 +223,9 @@ function recordAnswers(
  * gave. Passing takes strictly more than 70%, whatever the passing score
  * field says — that is the rule the Lesson page has always shown. Returns
  * null when the Quiz itself is gone.
+ *
+ * The attempt and its answers land in one transaction: an attempt whose
+ * answers did not record is a state nothing knows how to read.
  */
 export function submitQuizAttempt(
   db: Db,
@@ -255,18 +258,21 @@ export function submitQuizAttempt(
   const passed = scoreValue > 0.7;
   const grade = calculateGrade(scoreValue);
 
-  const saved = db
-    .insert(quizAttempts)
-    .values({
-      userId: attempt.userId,
-      quizId: attempt.quizId,
-      score: scoreValue,
-      passed,
-    })
-    .returning()
-    .get();
+  const saved = db.transaction((tx) => {
+    const inserted = tx
+      .insert(quizAttempts)
+      .values({
+        userId: attempt.userId,
+        quizId: attempt.quizId,
+        score: scoreValue,
+        passed,
+      })
+      .returning()
+      .get();
 
-  recordAnswers(db, saved.id, questionResults);
+    recordAnswers(tx, inserted.id, questionResults);
+    return inserted;
+  });
 
   return {
     attemptId: saved.id,
