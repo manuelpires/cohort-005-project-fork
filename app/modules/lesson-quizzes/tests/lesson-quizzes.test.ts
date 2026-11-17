@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb, seedBaseData, type TestDb } from "~/test/setup";
 import * as schema from "~/db/schema";
@@ -238,17 +238,14 @@ describe("the Lesson's Quiz", () => {
 });
 
 describe("scoring an attempt", () => {
-  it("returns null when the Quiz is gone", () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(
+  it("throws when the Quiz is gone", () => {
+    expect(() =>
       submitQuizAttempt(db, {
         userId: base.user.id,
         quizId: 999,
         selectedAnswers: {},
       })
-    ).toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith("quiz not found");
-    errorSpy.mockRestore();
+    ).toThrow("Quiz not found: 999");
   });
 
   it("scores a quiz with no questions as 0, not passed", () => {

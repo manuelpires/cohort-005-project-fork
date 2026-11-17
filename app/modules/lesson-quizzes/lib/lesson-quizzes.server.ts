@@ -263,8 +263,9 @@ function recordAnswers(
 /**
  * Scores the Student's answers and records the attempt with each answer they
  * gave. Passing takes strictly more than 70%, whatever the passing score
- * field says — that is the rule the Lesson page has always shown. Returns
- * null when the Quiz itself is gone.
+ * field says — that is the rule the Lesson page has always shown. Throws
+ * when the Quiz itself is gone: the caller has usually just looked it up,
+ * so its absence is a surprise, not a value.
  *
  * The attempt and its answers land in one transaction: an attempt whose
  * answers did not record is a state nothing knows how to read.
@@ -276,15 +277,14 @@ export function submitQuizAttempt(
     quizId: number;
     selectedAnswers: Record<number, number>;
   }
-): QuizAttemptResult | null {
+): QuizAttemptResult {
   const quiz = db
     .select()
     .from(quizzes)
     .where(eq(quizzes.id, attempt.quizId))
     .get();
   if (!quiz) {
-    console.error("quiz not found");
-    return null;
+    throw new Error(`Quiz not found: ${attempt.quizId}`);
   }
 
   const { questionResults, total, correct } = scoreQuestions(

@@ -108,6 +108,16 @@
         "max-lines-per-function": "off"
       }
     },
+    // "A module that cannot continue throws" (CODING_STANDARDS.md): a module
+    // never reports a surprise with console.* — it throws, and the caller
+    // decides what that means. The root rule allows console.error; modules
+    // get no allowance at all.
+    {
+      "files": ["app/modules/**"],
+      "rules": {
+        "no-console": "error"
+      }
+    },
     {
       "files": ["scripts/**", "request-logger/**"],
       "rules": {

@@ -405,9 +405,6 @@ export async function action({ params, request }: Route.ActionArgs) {
       quizId: parsed.quizId,
       selectedAnswers: parsed.selectedAnswers,
     });
-    if (!result) {
-      throw data("Failed to score quiz", { status: 500 });
-    }
 
     return { quizResult: result };
   }
