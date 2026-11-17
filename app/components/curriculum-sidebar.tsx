@@ -18,7 +18,7 @@ export function CurriculumSidebar({
     lessons: Array<{ id: number; title: string }>;
   }>;
   currentLessonId: number;
-  lessonProgressMap: Record<number, string>;
+  lessonProgressMap: Record<number, LessonProgressStatus>;
   enrolled: boolean;
 }) {
   const { expandedModules, toggleModule } = useExpandedModules(
@@ -105,7 +105,7 @@ function ModuleSection({
   expanded: boolean;
   onToggle: () => void;
   currentLessonId: number;
-  lessonProgressMap: Record<number, string>;
+  lessonProgressMap: Record<number, LessonProgressStatus>;
   enrolled: boolean;
 }) {
   return (
@@ -146,7 +146,7 @@ function LessonList({
   course: { slug: string };
   lessons: Array<{ id: number; title: string }>;
   currentLessonId: number;
-  lessonProgressMap: Record<number, string>;
+  lessonProgressMap: Record<number, LessonProgressStatus>;
   enrolled: boolean;
 }) {
   return (
@@ -175,7 +175,7 @@ function LessonLink({
   course: { slug: string };
   lesson: { id: number; title: string };
   isCurrent: boolean;
-  status: string | undefined;
+  status: LessonProgressStatus | undefined;
   enrolled: boolean;
 }) {
   const isCompleted = status === LessonProgressStatus.Completed;

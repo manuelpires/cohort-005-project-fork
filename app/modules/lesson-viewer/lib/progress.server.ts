@@ -37,7 +37,7 @@ export function getCourseLessonProgressMap(
   db: Db,
   userId: number,
   courseId: number
-): Record<number, string> {
+): Record<number, LessonProgressStatus> {
   const courseModules = db
     .select({ id: modules.id })
     .from(modules)
@@ -69,7 +69,7 @@ export function getCourseLessonProgressMap(
     )
     .all();
 
-  const map: Record<number, string> = {};
+  const map: Record<number, LessonProgressStatus> = {};
   for (const row of rows) {
     map[row.lessonId] = row.status;
   }
