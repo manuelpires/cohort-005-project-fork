@@ -1,6 +1,6 @@
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import * as schema from "~/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   quizAnswers,
   quizAttempts,
@@ -58,20 +58,42 @@ export function getQuizForLesson(db: Db, lessonId: number): LessonQuiz | null {
     .orderBy(quizQuestions.position)
     .all();
 
-  const questionsWithOptions = questions.map((question) => {
-    const options = db
-      .select({ id: quizOptions.id, optionText: quizOptions.optionText })
-      .from(quizOptions)
-      .where(eq(quizOptions.questionId, question.id))
-      .all();
-    return { ...question, options };
-  });
+  // One query for every question's options, grouped here — never one query
+  // per question.
+  const options = questions.length
+    ? db
+        .select({
+          questionId: quizOptions.questionId,
+          id: quizOptions.id,
+          optionText: quizOptions.optionText,
+        })
+        .from(quizOptions)
+        .where(
+          inArray(
+            quizOptions.questionId,
+            questions.map((question) => question.id)
+          )
+        )
+        .all()
+    : [];
+  const optionsByQuestion = new Map<
+    number,
+    { id: number; optionText: string }[]
+  >();
+  for (const option of options) {
+    const own = optionsByQuestion.get(option.questionId) ?? [];
+    own.push({ id: option.id, optionText: option.optionText });
+    optionsByQuestion.set(option.questionId, own);
+  }
 
   return {
     id: quiz.id,
     title: quiz.title,
     passingScore: quiz.passingScore,
-    questions: questionsWithOptions,
+    questions: questions.map((question) => ({
+      ...question,
+      options: optionsByQuestion.get(question.id) ?? [],
+    })),
   };
 }
 
@@ -116,22 +138,27 @@ function calculateGrade(score: number): string {
   return "F";
 }
 
-function correctOptionIdFor(
-  db: Db,
-  question: typeof quizQuestions.$inferSelect
-): number | null {
-  // Whichever option the instructor marked, whatever the question type.
-  const correct = db
-    .select()
-    .from(quizOptions)
-    .where(
-      and(
-        eq(quizOptions.questionId, question.id),
-        eq(quizOptions.isCorrect, true)
-      )
-    )
-    .get();
-  return correct ? correct.id : null;
+function correctOptionIds(db: Db, questionIds: number[]): Map<number, number> {
+  // One query for every question's correct option — never one per question.
+  const correct = questionIds.length
+    ? db
+        .select()
+        .from(quizOptions)
+        .where(
+          and(
+            eq(quizOptions.isCorrect, true),
+            inArray(quizOptions.questionId, questionIds)
+          )
+        )
+        .all()
+    : [];
+  const byQuestion = new Map<number, number>();
+  for (const option of correct) {
+    if (!byQuestion.has(option.questionId)) {
+      byQuestion.set(option.questionId, option.id);
+    }
+  }
+  return byQuestion;
 }
 
 /** How each question was answered and whether it counted. */
@@ -147,12 +174,17 @@ function scoreQuestions(
     .orderBy(quizQuestions.position)
     .all();
 
+  const correctOptionByQuestion = correctOptionIds(
+    db,
+    questions.map((question) => question.id)
+  );
+
   let correct = 0;
   const questionResults: QuestionResult[] = [];
 
   for (const question of questions) {
     const selected = selectedAnswers[question.id];
-    const correctOptionId = correctOptionIdFor(db, question);
+    const correctOptionId = correctOptionByQuestion.get(question.id) ?? null;
     const isCorrect = selected === correctOptionId;
 
     if (isCorrect) correct++;
