@@ -89,7 +89,7 @@ jobs:
     # Every other label on every other issue stops here, for free.
     if: github.event.label.name == 'agent:implement'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     env:
       GH_REPO: ${{ github.repository }}

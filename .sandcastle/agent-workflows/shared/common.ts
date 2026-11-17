@@ -29,7 +29,7 @@ export const writeJson = (filename: string, value: unknown): void => {
 // use any tool. Claude Code also accepts `permissionMode: "auto"` here for
 // AI-mediated approvals instead (Claude only; other agents don't offer it).
 export const claudeAgent = () =>
-  sandcastle.opencode("zai-coding-plan/glm-5.3-flash", {
+  sandcastle.opencode("zai-coding-plan/glm-5.3-highspeed", {
     env: {
       ZHIPU_API_KEY: required("ZHIPU_API_KEY"),
     },
