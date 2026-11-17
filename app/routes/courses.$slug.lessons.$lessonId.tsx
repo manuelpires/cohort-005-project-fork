@@ -499,7 +499,6 @@ function FullLesson({
             canBookmark={!!currentUserId}
           />
 
-          {/* YouTube Video */}
           {lesson.videoUrl && (
             <YouTubePlayer
               videoUrl={lesson.videoUrl}
@@ -514,7 +513,6 @@ function FullLesson({
             />
           )}
 
-          {/* Lesson Content */}
           {contentHtml && (
             <div
               className="prose prose-neutral dark:prose-invert mb-8 max-w-none"
@@ -531,7 +529,6 @@ function FullLesson({
             </Card>
           )}
 
-          {/* Quiz */}
           {quiz && enrolled && currentUserId && (
             <QuizSection
               quiz={quiz}
@@ -542,7 +539,6 @@ function FullLesson({
             />
           )}
 
-          {/* Mark Complete / Up Next */}
           {enrolled && currentUserId && (
             <div className="mb-8">
               <LessonCompletionBar
@@ -566,7 +562,6 @@ function FullLesson({
             instructorName={instructorName}
           />
 
-          {/* Prev/Next Navigation */}
           <LessonPrevNextNav
             courseSlug={course.slug}
             courseTitle={course.title}

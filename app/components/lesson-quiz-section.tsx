@@ -125,7 +125,6 @@ function QuizResultsCard({
 
         <QuizResultSummary passed={quizResult.passed} quizResult={quizResult} />
 
-        {/* Per-question results */}
         <div className="space-y-4">
           {quiz.questions.map((question, qIndex) => (
             <QuestionResultRow
@@ -139,7 +138,6 @@ function QuizResultsCard({
           ))}
         </div>
 
-        {/* Retake button */}
         {!quizResult.passed && (
           <div className="mt-6">
             <Button variant="outline" onClick={onRetake}>
