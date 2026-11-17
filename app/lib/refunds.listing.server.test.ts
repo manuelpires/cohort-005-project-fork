@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { eq } from "drizzle-orm";
+
 import { createTestDb, seedBaseData, type TestDb } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { LessonProgressStatus, RefundStatus, UserRole } from "~/db/schema";
@@ -15,139 +15,32 @@ import {
   fakeNotifications,
   type FakeNotifications,
 } from "./notifications.fake.server";
-
-const NOW = new Date(2026, 9, 6, 12, 0, 0);
-
-function daysBefore(days: number) {
-  const when = new Date(NOW);
-  when.setDate(when.getDate() - days);
-  return when.toISOString();
-}
+import {
+  NOW,
+  seedRefundFixture,
+  type RefundFixture,
+} from "./refunds.fixtures.server";
 
 let db: TestDb;
 let base: ReturnType<typeof seedBaseData>;
-let platformAdmin: typeof schema.users.$inferSelect;
-let lessonIds: number[];
+let fx: RefundFixture;
 let notifications: FakeNotifications;
 
 beforeEach(() => {
   db = createTestDb();
   notifications = fakeNotifications();
   base = seedBaseData(db);
-
-  platformAdmin = db
-    .insert(schema.users)
-    .values({
-      name: "Pat Admin",
-      email: "pat@example.com",
-      role: UserRole.Admin,
-    })
-    .returning()
-    .get();
-
-  const module = db
-    .insert(schema.modules)
-    .values({ courseId: base.course.id, title: "Basics", position: 1 })
-    .returning()
-    .get();
-
-  lessonIds = [1, 2, 3, 4].map(
-    (position) =>
-      db
-        .insert(schema.lessons)
-        .values({ moduleId: module.id, title: `Lesson ${position}`, position })
-        .returning()
-        .get().id
-  );
+  fx = seedRefundFixture(db, base, notifications);
 });
-
-function addStudent(name: string) {
-  return db
-    .insert(schema.users)
-    .values({
-      name,
-      email: `${name.toLowerCase()}@example.com`,
-      role: UserRole.Student,
-    })
-    .returning()
-    .get();
-}
-
-function buyForSelf(userId: number, daysAgo = 3, amountPaid = 7900) {
-  const purchase = db
-    .insert(schema.purchases)
-    .values({
-      userId,
-      courseId: base.course.id,
-      amountPaid,
-      createdAt: daysBefore(daysAgo),
-    })
-    .returning()
-    .get();
-  db.insert(schema.enrollments)
-    .values({ userId, courseId: base.course.id })
-    .run();
-  return purchase;
-}
-
-function buySeats(userId: number, seats: number, daysAgo = 3) {
-  const team = db.insert(schema.teams).values({}).returning().get();
-  const purchase = db
-    .insert(schema.purchases)
-    .values({
-      userId,
-      courseId: base.course.id,
-      amountPaid: 7900 * seats,
-      createdAt: daysBefore(daysAgo),
-    })
-    .returning()
-    .get();
-  const seatRows = Array.from({ length: seats }, (_, i) =>
-    db
-      .insert(schema.coupons)
-      .values({
-        teamId: team.id,
-        courseId: base.course.id,
-        code: `SEAT-${purchase.id}-${i}`,
-        purchaseId: purchase.id,
-      })
-      .returning()
-      .get()
-  );
-  return { purchase, seats: seatRows };
-}
-
-function claimSeat(seatId: number, userId: number) {
-  db.update(schema.coupons)
-    .set({ redeemedByUserId: userId, redeemedAt: daysBefore(1) })
-    .where(eq(schema.coupons.id, seatId))
-    .run();
-  db.insert(schema.enrollments)
-    .values({ userId, courseId: base.course.id })
-    .run();
-}
-
-async function raise(purchaseId: number, buyerId: number) {
-  const result = await raiseRefundRequest(
-    db,
-    purchaseId,
-    buyerId,
-    "It was not what I expected.",
-    NOW,
-    notifications
-  );
-  if (!result.ok) throw new Error(result.error);
-  return result.refundRequestId;
-}
 
 describe("listing Refund Requests", () => {
   it("shows a Platform Admin live figures and the rules a request breaks", async () => {
-    const purchase = buyForSelf(base.user.id);
-    const id = await raise(purchase.id, base.user.id);
+    const purchase = fx.buyForSelf(base.user.id);
+    const id = await fx.raise(purchase.id, base.user.id);
     // Since raising the request, the buyer has finished half the course.
     db.insert(schema.lessonProgress)
       .values(
-        lessonIds.slice(0, 2).map((lessonId) => ({
+        fx.lessonIds.slice(0, 2).map((lessonId) => ({
           userId: base.user.id,
           lessonId,
           status: LessonProgressStatus.Completed,
@@ -172,9 +65,9 @@ describe("listing Refund Requests", () => {
   });
 
   it("shows a Team Licence's Seats instead of the buyer's progress", async () => {
-    const priya = addStudent("Priya");
-    const { purchase } = buySeats(priya.id, 3);
-    await raise(purchase.id, priya.id);
+    const priya = fx.addStudent("Priya");
+    const { purchase } = fx.buySeats(priya.id, 3);
+    await fx.raise(purchase.id, priya.id);
 
     const [row] = listRefundRequestsForReview(db, RefundStatus.Open, NOW);
 
@@ -186,10 +79,10 @@ describe("listing Refund Requests", () => {
   });
 
   it("lists only the requested status, oldest first", async () => {
-    const first = buyForSelf(base.user.id);
-    const ben = addStudent("Ben");
-    const second = buyForSelf(ben.id);
-    const firstId = await raise(first.id, base.user.id);
+    const first = fx.buyForSelf(base.user.id);
+    const ben = fx.addStudent("Ben");
+    const second = fx.buyForSelf(ben.id);
+    const firstId = await fx.raise(first.id, base.user.id);
     const secondId = await raiseRefundRequest(
       db,
       second.id,
@@ -207,7 +100,7 @@ describe("listing Refund Requests", () => {
     await approveRefundRequest(
       db,
       firstId,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       null,
       NOW,
       notifications
@@ -219,12 +112,12 @@ describe("listing Refund Requests", () => {
   });
 
   it("shows a buyer their decided requests with the decline note", async () => {
-    const purchase = buyForSelf(base.user.id);
-    const id = await raise(purchase.id, base.user.id);
+    const purchase = fx.buyForSelf(base.user.id);
+    const id = await fx.raise(purchase.id, base.user.id);
     await declineRefundRequest(
       db,
       id,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       "Past half way.",
       NOW,
       notifications
@@ -236,10 +129,10 @@ describe("listing Refund Requests", () => {
   });
 
   it("lists a Team Admin's Team Licences and whether each can be refunded", () => {
-    const priya = addStudent("Priya");
-    buySeats(priya.id, 2);
-    const { seats } = buySeats(priya.id, 2);
-    claimSeat(seats[0].id, addStudent("Ben").id);
+    const priya = fx.addStudent("Priya");
+    fx.buySeats(priya.id, 2);
+    const { seats } = fx.buySeats(priya.id, 2);
+    fx.claimSeat(seats[0].id, fx.addStudent("Ben").id);
 
     expect(listTeamLicences(db, priya.id, NOW)).toMatchObject([
       { seatCount: 2, claimedSeatCount: 1, canRequestRefund: false },
@@ -260,9 +153,9 @@ describe("the Refund Request Notifications", () => {
   }
 
   it("confirms the Refund Request to the buyer", async () => {
-    const purchase = buyForSelf(base.user.id, 3, 7900);
+    const purchase = fx.buyForSelf(base.user.id, 3, 7900);
 
-    const id = await raise(purchase.id, base.user.id);
+    const id = await fx.raise(purchase.id, base.user.id);
 
     expect(sentOf("refund-requested")).toEqual([
       {
@@ -288,19 +181,19 @@ describe("the Refund Request Notifications", () => {
       })
       .returning()
       .get();
-    const purchase = buyForSelf(base.user.id, 3, 7900);
+    const purchase = fx.buyForSelf(base.user.id, 3, 7900);
 
-    const id = await raise(purchase.id, base.user.id);
+    const id = await fx.raise(purchase.id, base.user.id);
 
     const open = sentOf("refund-request-open");
     expect(open.map((n) => n.recipient.id).sort()).toEqual(
-      [platformAdmin.id, sam.id].sort()
+      [fx.platformAdmin.id, sam.id].sort()
     );
     expect(open[0]).toEqual({
       kind: "refund-request-open",
       idempotencyKey: `refund-request-open:${id}`,
       recipient: {
-        id: platformAdmin.id,
+        id: fx.platformAdmin.id,
         name: "Pat Admin",
         email: "pat@example.com",
         avatarUrl: null,
@@ -318,13 +211,13 @@ describe("the Refund Request Notifications", () => {
   });
 
   it("tells the buyer their Individual Purchase refund was approved", async () => {
-    const purchase = buyForSelf(base.user.id, 3, 7900);
-    const id = await raise(purchase.id, base.user.id);
+    const purchase = fx.buyForSelf(base.user.id, 3, 7900);
+    const id = await fx.raise(purchase.id, base.user.id);
 
     await approveRefundRequest(
       db,
       id,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       "Sorry it didn't work out.",
       NOW,
       notifications
@@ -336,7 +229,7 @@ describe("the Refund Request Notifications", () => {
         idempotencyKey: `refund-approved:${id}`,
         recipient: { id: base.user.id, ...testUser },
         actor: {
-          id: platformAdmin.id,
+          id: fx.platformAdmin.id,
           name: "Pat Admin",
           email: "pat@example.com",
           avatarUrl: null,
@@ -354,14 +247,14 @@ describe("the Refund Request Notifications", () => {
   });
 
   it("tells a Team Admin their Team Licence refund was declined", async () => {
-    const priya = addStudent("Priya");
-    const { purchase } = buySeats(priya.id, 2);
-    const id = await raise(purchase.id, priya.id);
+    const priya = fx.addStudent("Priya");
+    const { purchase } = fx.buySeats(priya.id, 2);
+    const id = await fx.raise(purchase.id, priya.id);
 
     await declineRefundRequest(
       db,
       id,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       "  Seats are in use.  ",
       NOW,
       notifications
@@ -378,7 +271,7 @@ describe("the Refund Request Notifications", () => {
           avatarUrl: null,
         },
         actor: {
-          id: platformAdmin.id,
+          id: fx.platformAdmin.id,
           name: "Pat Admin",
           email: "pat@example.com",
           avatarUrl: null,
@@ -397,14 +290,14 @@ describe("the Refund Request Notifications", () => {
   });
 
   it("tells a Team Admin their Team Licence refund was approved, with no note", async () => {
-    const priya = addStudent("Priya");
-    const { purchase } = buySeats(priya.id, 2);
-    const id = await raise(purchase.id, priya.id);
+    const priya = fx.addStudent("Priya");
+    const { purchase } = fx.buySeats(priya.id, 2);
+    const id = await fx.raise(purchase.id, priya.id);
 
     await approveRefundRequest(
       db,
       id,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       null,
       NOW,
       notifications
@@ -426,7 +319,7 @@ describe("the Refund Request Notifications", () => {
   it("still raises and decides Refund Requests, with their emails, when Knock is down", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     notifications.failWith(new Error("Knock is down"));
-    const purchase = buyForSelf(base.user.id);
+    const purchase = fx.buyForSelf(base.user.id);
 
     const raised = await raiseRefundRequest(
       db,
@@ -440,7 +333,7 @@ describe("the Refund Request Notifications", () => {
     const declined = await declineRefundRequest(
       db,
       raised.refundRequestId,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       "No.",
       NOW,
       notifications
@@ -465,12 +358,12 @@ describe("the Refund Request Notifications", () => {
   });
 
   it("sends nothing when a decision is refused", async () => {
-    const purchase = buyForSelf(base.user.id);
-    const id = await raise(purchase.id, base.user.id);
+    const purchase = fx.buyForSelf(base.user.id);
+    const id = await fx.raise(purchase.id, base.user.id);
     await approveRefundRequest(
       db,
       id,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       null,
       NOW,
       notifications
@@ -480,7 +373,7 @@ describe("the Refund Request Notifications", () => {
     await declineRefundRequest(
       db,
       id,
-      platformAdmin.id,
+      fx.platformAdmin.id,
       "Too late.",
       NOW,
       notifications
