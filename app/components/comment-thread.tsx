@@ -8,26 +8,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { UserAvatar } from "~/components/user-avatar";
 import { cn, formatRelativeTime } from "~/lib/utils";
 import { MAX_COMMENT_LENGTH } from "~/lib/comments";
-
-// Bodies arrive pre-rendered from the server (renderComment), because comments
-// are untrusted markdown and the sanitising renderer is server-only.
-export type RenderedComment = {
-  id: number;
-  /** Raw markdown — only used to populate the edit box. */
-  body: string;
-  bodyHtml: string;
-  createdAt: string;
-  editedAt: string | null;
-  deleted: boolean;
-  author: {
-    id: number;
-    name: string;
-    avatarUrl: string | null;
-    isInstructor: boolean;
-    isPlatformAdmin: boolean;
-  };
-  replies: RenderedComment[];
-};
+import type { RenderedComment } from "~/modules/lesson-viewer/index.server";
 
 function AuthorBadge({ label }: { label: string }) {
   return (
@@ -350,7 +331,63 @@ function Replies({
   );
 }
 
-export function CommentThread({
+/**
+ * The Discussion's comments and post form — everything below the heading.
+ * Split from {@link DiscussionSection} so the Lesson's Notes & Discussion
+ * panel can show the comments under its own tab.
+ */
+export function DiscussionBody({
+  comments,
+  currentUserId,
+  canModerate,
+  canPost,
+  instructorName,
+}: {
+  comments: RenderedComment[];
+  currentUserId: number | null;
+  canModerate: boolean;
+  canPost: boolean;
+  instructorName: string;
+}) {
+  return (
+    <>
+      {comments.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-6 text-center">
+          <p className="font-medium">Stuck on this lesson?</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Ask here — {instructorName} answers questions in this course.
+            There&apos;s no such thing as a question that&apos;s too basic.
+          </p>
+        </div>
+      ) : (
+        <div className="divide-y">
+          {comments.map((comment) => (
+            <CommentItem
+              key={comment.id}
+              comment={comment}
+              currentUserId={currentUserId}
+              canModerate={canModerate}
+              canPost={canPost}
+              isReply={false}
+            />
+          ))}
+        </div>
+      )}
+
+      {canPost && (
+        <div className="mt-6 border-t pt-6">
+          <CommentForm
+            intent="create-comment"
+            placeholder="Ask a question or share what you found..."
+            submitLabel="Post comment"
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+export function DiscussionSection({
   comments,
   currentUserId,
   canModerate,
@@ -372,38 +409,13 @@ export function CommentThread({
           <h2 className="text-xl font-semibold">Questions &amp; Discussion</h2>
         </div>
 
-        {comments.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center">
-            <p className="font-medium">Stuck on this lesson?</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Ask here — {instructorName} answers questions in this course.
-              There&apos;s no such thing as a question that&apos;s too basic.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {comments.map((comment) => (
-              <CommentItem
-                key={comment.id}
-                comment={comment}
-                currentUserId={currentUserId}
-                canModerate={canModerate}
-                canPost={canPost}
-                isReply={false}
-              />
-            ))}
-          </div>
-        )}
-
-        {canPost && (
-          <div className="mt-6 border-t pt-6">
-            <CommentForm
-              intent="create-comment"
-              placeholder="Ask a question or share what you found..."
-              submitLabel="Post comment"
-            />
-          </div>
-        )}
+        <DiscussionBody
+          comments={comments}
+          currentUserId={currentUserId}
+          canModerate={canModerate}
+          canPost={canPost}
+          instructorName={instructorName}
+        />
       </CardContent>
     </Card>
   );
