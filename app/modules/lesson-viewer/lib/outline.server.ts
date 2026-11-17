@@ -85,18 +85,13 @@ export function getUser(db: Db, userId: number) {
 /**
  * The lessons either side of this one in the course's flattened outline,
  * for the Previous / Next navigation. Either side may be missing at the
- * ends of the course.
+ * ends of the course. Takes the outline the caller already holds — the
+ * neighbours are a walk over it, not a second query.
  */
 export function getLessonNeighbours(
-  db: Db,
-  courseId: number,
+  outline: NonNullable<ReturnType<typeof getCourseOutline>>,
   lessonId: number
 ) {
-  const outline = getCourseOutline(db, courseId);
-  if (!outline) {
-    return { prevLesson: null, nextLesson: null };
-  }
-
   const flat = outline.modules.flatMap((mod) =>
     mod.lessons.map((lesson) => ({ id: lesson.id, title: lesson.title }))
   );

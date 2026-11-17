@@ -214,10 +214,9 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     ? await renderMarkdown(lesson.content)
     : null;
 
-  // Previous/next navigation follows the course outline
+  // Previous/next navigation walks the outline the loader already fetched
   const { prevLesson, nextLesson } = getLessonNeighbours(
-    db,
-    course.id,
+    courseWithDetails,
     lessonId
   );
 

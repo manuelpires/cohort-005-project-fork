@@ -130,28 +130,28 @@ describe("the course outline", () => {
       .values({ moduleId: moduleIds[1], title: "Lesson 3", position: 1 })
       .returning()
       .get();
+    const outline = getCourseOutline(db, base.course.id);
+    if (!outline) throw new Error("the course outline should exist");
 
-    expect(getLessonNeighbours(db, base.course.id, lessonIds[0])).toEqual({
+    expect(getLessonNeighbours(outline, lessonIds[0])).toEqual({
       prevLesson: null,
       nextLesson: { id: lessonIds[1], title: "Lesson 2" },
     });
-    expect(getLessonNeighbours(db, base.course.id, lessonIds[1])).toEqual({
+    expect(getLessonNeighbours(outline, lessonIds[1])).toEqual({
       prevLesson: { id: lessonIds[0], title: "Lesson 1" },
       nextLesson: { id: later.id, title: "Lesson 3" },
     });
-    expect(getLessonNeighbours(db, base.course.id, later.id)).toEqual({
+    expect(getLessonNeighbours(outline, later.id)).toEqual({
       prevLesson: { id: lessonIds[1], title: "Lesson 2" },
       nextLesson: null,
     });
-    expect(getLessonNeighbours(db, base.course.id, 999)).toEqual({
+    expect(getLessonNeighbours(outline, 999)).toEqual({
       prevLesson: null,
       nextLesson: null,
     });
-    // An unknown course has neither neighbour either.
-    expect(getLessonNeighbours(db, 999, lessonIds[0])).toEqual({
-      prevLesson: null,
-      nextLesson: null,
-    });
+    // A course that does not exist has no outline at all — the lesson route
+    // 404s on that before it would ever ask for neighbours.
+    expect(getCourseOutline(db, 999)).toBeNull();
   });
 });
 
