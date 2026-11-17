@@ -163,7 +163,7 @@ describe("lesson progress", () => {
     const again = markLessonInProgress(db, base.user.id, lessonIds[0]);
     expect(again.id).toBe(first.id);
 
-    markLessonComplete(db, base.user.id, lessonIds[0]);
+    markLessonComplete(db, base.user.id, lessonIds[0], new Date(NOW));
     const revisit = markLessonInProgress(db, base.user.id, lessonIds[0]);
     expect(revisit.status).toBe(LessonProgressStatus.Completed);
   });
@@ -171,10 +171,15 @@ describe("lesson progress", () => {
   it("marks a lesson complete, creating the row when it does not exist yet", () => {
     expect(getLessonProgress(db, base.user.id, lessonIds[0])).toBeUndefined();
 
-    const completed = markLessonComplete(db, base.user.id, lessonIds[0]);
+    const completed = markLessonComplete(
+      db,
+      base.user.id,
+      lessonIds[0],
+      new Date(NOW)
+    );
     expect(completed).toMatchObject({
       status: LessonProgressStatus.Completed,
-      completedAt: expect.any(String),
+      completedAt: NOW,
     });
     expect(getLessonProgress(db, base.user.id, lessonIds[0])?.id).toBe(
       completed.id
@@ -214,9 +219,9 @@ describe("lesson progress", () => {
       .returning()
       .get();
 
-    markLessonComplete(db, base.user.id, lessonIds[0]);
+    markLessonComplete(db, base.user.id, lessonIds[0], new Date(NOW));
     markLessonInProgress(db, base.user.id, lessonIds[1]);
-    markLessonComplete(db, base.user.id, otherLesson.id);
+    markLessonComplete(db, base.user.id, otherLesson.id, new Date(NOW));
 
     expect(
       getCourseLessonProgressMap(db, base.user.id, base.course.id)
@@ -230,7 +235,7 @@ describe("lesson progress", () => {
   });
 
   it("leaves lessons without progress out of the map", () => {
-    markLessonComplete(db, base.user.id, lessonIds[0]);
+    markLessonComplete(db, base.user.id, lessonIds[0], new Date(NOW));
 
     expect(
       getCourseLessonProgressMap(db, base.user.id, base.course.id)
@@ -252,7 +257,7 @@ describe("lesson progress", () => {
       })
       .returning()
       .get();
-    markLessonComplete(db, base.user.id, lessonIds[0]);
+    markLessonComplete(db, base.user.id, lessonIds[0], new Date(NOW));
 
     // A course with no modules at all
     expect(getCourseLessonProgressMap(db, base.user.id, lessonless.id)).toEqual(
