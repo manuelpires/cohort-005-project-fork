@@ -23,14 +23,14 @@ export const writeJson = (filename: string, value: unknown): void => {
 
 // The one agent every factory workflow runs. It authenticates with a Claude
 // subscription. To bill the API instead, pass ANTHROPIC_API_KEY here and in
-// the workflow's env in place of CLAUDE_CODE_OAUTH_TOKEN.
+// the workflow's env in place of ZHIPU_API_KEY.
 //
 // Sandcastle runs every agent with its permission checks skipped, so it can
 // use any tool. Claude Code also accepts `permissionMode: "auto"` here for
 // AI-mediated approvals instead (Claude only; other agents don't offer it).
 export const claudeAgent = () =>
-  sandcastle.claudeCode("claude-opus-5-5", {
+  sandcastle.opencode("zai-coding-plan/glm-5.3", {
     env: {
-      CLAUDE_CODE_OAUTH_TOKEN: required("CLAUDE_CODE_OAUTH_TOKEN"),
+      ZHIPU_API_KEY: required("ZHIPU_API_KEY"),
     },
   });
