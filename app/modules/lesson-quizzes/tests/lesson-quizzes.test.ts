@@ -190,6 +190,51 @@ describe("the Lesson's Quiz", () => {
     const quiz = seedQuiz(lessonIds[0], []);
     expect(getQuizOwnerLessonId(db, quiz.id)).toBe(lessonIds[0]);
   });
+
+  it("renders empty edges as empty: a quiz with no questions, a question with no options", () => {
+    const questionless = seedQuiz(lessonIds[0], []);
+    expect(getQuizForLesson(db, lessonIds[0])?.id).toBe(questionless.id);
+
+    const optionless = seedQuiz(lessonIds[1], [
+      {
+        questionText: "No options were ever added",
+        questionType: QuestionType.MultipleChoice,
+        options: [],
+      },
+    ]);
+    expect(getQuizForLesson(db, lessonIds[1])).toMatchObject({
+      id: optionless.id,
+      questions: [{ questionText: "No options were ever added", options: [] }],
+    });
+  });
+
+  it("takes the first option marked correct when a question has two", () => {
+    seedQuiz(lessonIds[0], [
+      {
+        questionText: "Two right answers",
+        questionType: QuestionType.MultipleChoice,
+        options: [
+          { optionText: "First", isCorrect: true },
+          { optionText: "Second", isCorrect: true },
+        ],
+      },
+    ]);
+    const quiz = getQuizForLesson(db, lessonIds[0]);
+    if (!quiz) throw new Error("the quiz should exist");
+
+    const question = quiz.questions[0];
+    const firstOption = question.options[0];
+    const result = submitQuizAttempt(db, {
+      userId: base.user.id,
+      quizId: quiz.id,
+      selectedAnswers: { [question.id]: firstOption.id },
+    });
+
+    expect(result?.questionResults[0]).toMatchObject({
+      correct: true,
+      correctOptionId: firstOption.id,
+    });
+  });
 });
 
 describe("scoring an attempt", () => {

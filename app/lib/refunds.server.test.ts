@@ -75,6 +75,10 @@ describe("raising a Refund Request", () => {
     expect(result).toMatchObject({ ok: true, kind: "individual_purchase" });
   });
 
+  it("throws when the fixture is asked to raise on a purchase that does not exist", async () => {
+    await expect(fx.raise(999999, base.user.id)).rejects.toThrow();
+  });
+
   it("refuses anyone but the buyer", () => {
     const purchase = fx.buyForSelf(base.user.id);
     const someoneElse = fx.addStudent("Ben");
