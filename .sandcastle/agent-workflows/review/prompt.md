@@ -30,3 +30,13 @@ Write your verdict on the branch, after your fixes, to /tmp/review-verdict.md:
 When the change shows in the UI, save screenshots as PNGs in /tmp/evidence/.
 Reference each in the verdict by its absolute path, e.g.
 `![after](/tmp/evidence/after.png)`. The workflow uploads them.
+
+Before you finish, stop anything you started that is still running — the dev
+server, any browser you drove for screenshots — so nothing outlives your
+session. Then, when you are completely finished, end your final message with
+this exact line and nothing after it:
+
+<promise>COMPLETE</promise>
+
+The workflow watches for that line to know you are done; without it your run
+hangs until it times out and fails.
