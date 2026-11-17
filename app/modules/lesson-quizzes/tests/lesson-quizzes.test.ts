@@ -7,6 +7,7 @@ import {
   getBestAttempt,
   getQuizForLesson,
   getQuizOwnerLessonId,
+  parseQuizSubmission,
   submitQuizAttempt,
   type QuestionResult,
 } from "~/modules/lesson-quizzes/index.server";
@@ -348,5 +349,38 @@ describe("scoring an attempt", () => {
   it("returns null when the Student has never attempted the Quiz", () => {
     const quiz = seedTenQuestionQuiz(lessonIds[1]);
     expect(getBestAttempt(db, base.user.id, quiz.quizId)).toBeNull();
+  });
+});
+
+describe("parsing a submitted quiz", () => {
+  it("reads the quiz id and each question-{id} answer field", () => {
+    const formData = new FormData();
+    formData.set("intent", "submit-quiz");
+    formData.set("quizId", "7");
+    formData.set("question-11", "3");
+    formData.set("question-12", "4");
+
+    expect(parseQuizSubmission(formData)).toEqual({
+      ok: true,
+      quizId: 7,
+      selectedAnswers: { 11: 3, 12: 4 },
+    });
+  });
+
+  it("rejects an empty quiz id instead of coercing it to 0", () => {
+    const formData = new FormData();
+    formData.set("intent", "submit-quiz");
+    formData.set("quizId", "");
+
+    expect(parseQuizSubmission(formData)).toEqual({ ok: false });
+  });
+
+  it("rejects a malformed answer field instead of scoring it", () => {
+    const formData = new FormData();
+    formData.set("intent", "submit-quiz");
+    formData.set("quizId", "7");
+    formData.set("question-", "3");
+
+    expect(parseQuizSubmission(formData)).toEqual({ ok: false });
   });
 });

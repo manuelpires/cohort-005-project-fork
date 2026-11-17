@@ -35,6 +35,7 @@ import {
   getBestAttempt,
   getQuizForLesson,
   getQuizOwnerLessonId,
+  parseQuizSubmission,
   submitQuizAttempt,
 } from "~/modules/lesson-quizzes/index.server";
 import { LessonNotesPanel } from "~/components/lesson-notes-panel";
@@ -388,33 +389,21 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   if (intent === "submit-quiz") {
-    const quizId = Number(formData.get("quizId"));
-    if (isNaN(quizId)) {
-      throw data("Invalid quiz ID", { status: 400 });
+    const parsed = parseQuizSubmission(formData);
+    if (!parsed.ok) {
+      throw data("Invalid quiz submission", { status: 400 });
     }
     // Scope the quiz to this lesson so a quiz elsewhere can't be reached by
     // posting its id to this route.
-    const ownerLessonId = getQuizOwnerLessonId(db, quizId);
+    const ownerLessonId = getQuizOwnerLessonId(db, parsed.quizId);
     if (ownerLessonId !== lessonId) {
       throw data("Quiz not found", { status: 404 });
     }
 
-    // Collect answers: form fields named "question-{questionId}" with value = optionId
-    const selectedAnswers: Record<number, number> = {};
-    for (const [key, value] of formData.entries()) {
-      if (key.startsWith("question-")) {
-        const questionId = Number(key.replace("question-", ""));
-        const optionId = Number(value);
-        if (!isNaN(questionId) && !isNaN(optionId)) {
-          selectedAnswers[questionId] = optionId;
-        }
-      }
-    }
-
     const result = submitQuizAttempt(db, {
       userId: currentUserId,
-      quizId,
-      selectedAnswers,
+      quizId: parsed.quizId,
+      selectedAnswers: parsed.selectedAnswers,
     });
     if (!result) {
       throw data("Failed to score quiz", { status: 500 });

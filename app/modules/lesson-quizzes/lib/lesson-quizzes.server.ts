@@ -8,6 +8,7 @@ import {
   quizQuestions,
   quizzes,
 } from "~/db/schema";
+import { z } from "zod";
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
@@ -105,6 +106,47 @@ export function getQuizOwnerLessonId(db: Db, quizId: number): number | null {
     .where(eq(quizzes.id, quizId))
     .get();
   return quiz?.lessonId ?? null;
+}
+
+const submitQuizSchema = z.object({
+  intent: z.literal("submit-quiz"),
+  quizId: z.coerce.number().int().positive(),
+});
+
+/** One posted answer: a `question-{id}` form field holding an option id. */
+const quizAnswerSchema = z.object({
+  questionId: z.coerce.number().int().positive(),
+  optionId: z.coerce.number().int().positive(),
+});
+
+export type ParsedQuizSubmission =
+  | { ok: true; quizId: number; selectedAnswers: Record<number, number> }
+  | { ok: false };
+
+/**
+ * A submitted Quiz as the Lesson page posts it: the quiz's id, plus one
+ * `question-{id}` field per answer. Malformed fields fail the parse — they
+ * must not reach a query, because an empty field coerced to 0 once scored
+ * against question 0.
+ */
+export function parseQuizSubmission(formData: FormData): ParsedQuizSubmission {
+  const parsed = submitQuizSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { ok: false };
+
+  const posted = [...formData.entries()]
+    .filter(([key]) => key.startsWith("question-"))
+    .map(([key, value]) => ({
+      questionId: key.slice("question-".length),
+      optionId: value,
+    }));
+  const answers = z.array(quizAnswerSchema).safeParse(posted);
+  if (!answers.success) return { ok: false };
+
+  const selectedAnswers: Record<number, number> = {};
+  for (const { questionId, optionId } of answers.data) {
+    selectedAnswers[questionId] = optionId;
+  }
+  return { ok: true, quizId: parsed.data.quizId, selectedAnswers };
 }
 
 /**
