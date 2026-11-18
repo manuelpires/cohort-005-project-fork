@@ -88,7 +88,7 @@ jobs:
   implement:
     # Every other label on every other issue stops here, for free.
     if: github.event.label.name == 'agent:implement'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
 
     env:
@@ -115,13 +115,13 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" --add-label "agent:in-progress"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm

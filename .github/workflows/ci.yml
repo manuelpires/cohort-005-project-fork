@@ -1,0 +1,54 @@
+name: CI
+
+# The plain gate. The agent workflows run `npm run check` inside their own
+# runs, but they start from a label or an issue — a pull request nobody has
+# labeled, or a push straight to main, would otherwise reach the branch with
+# nothing checking it. The pre-commit hook cannot be that gate: it is local,
+# it skips three-second-budget checks (the tests), and it goes wherever the
+# committer's git config goes.
+#
+# So every push to main and every pull request runs the repo's own command,
+# `npm run check` — format, oxlint, typecheck, boundaries, the full test
+# suite — plus `npm run build`. Nothing here posts, pushes or labels: the
+# token stays read-only, and this workflow never needs a PAT.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to the same branch replaces the run it supersedes. Only this
+  # workflow's own runs share the group; the agent workflows are labelled
+  # separately and are never cancelled by a push.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check
+        run: npm run check
+
+      - name: Build
+        run: npm run build

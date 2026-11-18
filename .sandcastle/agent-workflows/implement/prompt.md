@@ -12,7 +12,9 @@ Read CODING_STANDARDS.md.
   with, and none failing.
 - `npm run build` must pass too.
 - Commit with `git commit` on the current branch. When the pre-commit hook
-  rejects a commit, fix the work and commit again. The hook stays as it is:
+  rejects a commit, fix the work and commit again. A fix the hook forced —
+  a file split, a rename — is its own commit, never folded into the change
+  that triggered it. The hook stays as it is:
   no `--no-verify`, no edits to `.husky/`, `scripts/pre-commit.sh` or
   `core.hooksPath`.
 - Finish with at least one commit and a clean working tree. The workflow

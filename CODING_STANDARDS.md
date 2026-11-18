@@ -113,3 +113,40 @@ Name and extract until a comment is unnecessary. A comment earns its place
 only for a _why_ the code cannot express: a constraint, a decision, a link to
 the ADR behind it. A comment that restates _what_ the code does goes stale the
 first time the code changes.
+
+## One concern per commit
+
+A commit carries one concern: the ticket's change, or a refactor a check
+forced on the way — never both. When the pre-commit hook refuses a commit
+and prescribes a fix (a file split, a rename), that fix lands as its own
+commit. (The refunds test split rode inside the notes commit, and the review
+had no rule to cite against it.)
+
+## A displayed number counts what its label names
+
+A badge that says "Discussion 3" counts every comment in the discussion,
+replies included. Derive the count at the point of display, over everything
+the label names. (The badge counted top-level comments, so a question with
+nine replies read "1".)
+
+## Visible state has a text alternative
+
+Anything that tells the user something — a dot, a colour, a badge — also
+says it in text a screen reader reaches: an sr-only label, an aria-label, a
+live region. (The unsaved-changes dot was aria-hidden with nothing in its
+place, so the state existed for sighted users only.)
+
+## One schema, both gates
+
+The client's pre-submit check and the server's parse are one rule, and live
+in one schema the component and the action both import. Two hand-written
+gates drift. (The client counted raw length while the server trimmed first,
+and the Save button refused notes the server accepted.)
+
+## A module that cannot continue throws
+
+"Fail with a thrown response" governs routes. Inside a module the same
+instinct is a throw, not a `console.error` and a null: the caller decides
+what the surprise means, and a log does not replace telling it.
+(`submitQuizAttempt` logged "quiz not found" and returned null; every caller
+needed to know.)

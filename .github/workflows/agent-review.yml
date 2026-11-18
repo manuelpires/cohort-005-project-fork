@@ -86,7 +86,7 @@ concurrency:
 jobs:
   review:
     if: github.event.label.name == 'agent:review'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
 
     env:
@@ -116,7 +116,7 @@ jobs:
           gh pr edit "$PR_NUMBER" --add-label "agent:in-progress"
 
       - name: Checkout the pull request
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # The PR's head, so the review's fixes are commits on top of it.
           # Full history: the review diffs it against the base.
@@ -152,7 +152,7 @@ jobs:
           cat /tmp/review-spec.md
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm

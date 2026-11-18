@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "react", "jsx-a11y", "import", "vitest"],
-  "jsPlugins": ["./lint-rules/sql-raw.js"],
+  "jsPlugins": ["./lint-rules/sql-raw.js", "./lint-rules/no-number-coerce.js"],
   "categories": {
     "correctness": "error"
   },
@@ -106,6 +106,44 @@
       "files": ["**/*.test.ts", "**/*.test.tsx"],
       "rules": {
         "max-lines-per-function": "off"
+      }
+    },
+    // "A module that cannot continue throws" (CODING_STANDARDS.md): a module
+    // never reports a surprise with console.* — it throws, and the caller
+    // decides what that means. The root rule allows console.error; modules
+    // get no allowance at all.
+    {
+      "files": ["app/modules/**"],
+      "rules": {
+        "no-console": "error"
+      }
+    },
+    // "Parse untrusted input with a schema, at the edge"
+    // (CODING_STANDARDS.md), enforced: a route never coerces input with
+    // Number() — Number("") is 0.
+    {
+      "files": ["app/routes/**"],
+      "rules": {
+        "edge/no-number-coerce": "error"
+      }
+    },
+    // Routes still coercing by hand. Remove each entry once the file parses
+    // its input through a schema. The last two (analytics, team) coerce
+    // display values, not route input — they leave the list when their
+    // coercion moves out of the route.
+    {
+      "files": [
+        "app/routes/courses.$slug.$moduleId.tsx",
+        "app/routes/courses.$slug.lessons.$lessonId.tsx",
+        "app/routes/courses.$slug.tsx",
+        "app/routes/instructor.$courseId.lessons.$lessonId.quiz.tsx",
+        "app/routes/instructor.$courseId.lessons.$lessonId.tsx",
+        "app/routes/instructor.$courseId.modules.$moduleId.tsx",
+        "app/routes/instructor.analytics.tsx",
+        "app/routes/team.tsx"
+      ],
+      "rules": {
+        "edge/no-number-coerce": "off"
       }
     },
     {
