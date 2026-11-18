@@ -9,15 +9,8 @@ import {
   CardHeader,
 } from "~/components/ui/card";
 import { CourseStatus } from "~/db/schema";
-import {
-  BookOpen,
-  GraduationCap,
-  Users,
-  ArrowRight,
-  User,
-  Moon,
-  Sun,
-} from "lucide-react";
+import { BookOpen, ArrowRight, User, Moon, Sun } from "lucide-react";
+import { buildLandingContent } from "~/modules/landing";
 import { CourseImage } from "~/components/course-image";
 import { DevUI } from "~/components/dev-ui";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
@@ -173,6 +166,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
   } = loaderData;
+  const content = buildLandingContent({
+    totalCourses,
+    totalCategories,
+    signedIn: currentUser !== null,
+  });
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -234,51 +232,41 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </div>
       </header>
 
-      <section className="mx-auto max-w-6xl px-6 py-24 text-center">
-        <h1 className="text-5xl font-bold tracking-tight sm:text-6xl">
-          Learn to code,
+      <section className={content.hero.className}>
+        <p className={content.hero.eyebrowClassName}>{content.hero.eyebrow}</p>
+        <h1 className={content.hero.headlineClassName}>
+          {content.hero.headlineLead}
           <br />
-          <span className="text-muted-foreground">at your own pace</span>
+          <span className="text-muted-foreground">
+            {content.hero.headlineMuted}
+          </span>
         </h1>
-        <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-          Structured courses built by experienced instructors. Track your
-          progress, take quizzes, and build real-world skills.
+        <p className={content.hero.descriptionClassName}>
+          {content.hero.description}
         </p>
-        <div className="mt-10 flex items-center justify-center gap-4">
-          <Button asChild size="lg">
-            <Link to="/courses">
-              Browse Courses
-              <ArrowRight className="ml-2 size-4" />
-            </Link>
-          </Button>
+        <div className={content.hero.ctaRowClassName}>
+          {content.hero.ctas.map((cta) => (
+            <Button key={cta.href} asChild size="lg" variant={cta.variant}>
+              <Link to={cta.href}>
+                {cta.label}
+                {cta.icon && <ArrowRight className="ml-2 size-4" />}
+              </Link>
+            </Button>
+          ))}
         </div>
       </section>
 
-      <section className="border-y border-border bg-muted/50 py-16">
+      <section className={content.stats.className}>
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-6 sm:grid-cols-3">
-          <div className="text-center">
-            <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-lg bg-primary/10">
-              <BookOpen className="size-6 text-primary" />
+          {content.stats.items.map((stat) => (
+            <div key={stat.label} className={content.stats.itemClassName}>
+              <div className="mb-3 flex size-12 items-center justify-center rounded-lg bg-primary/10">
+                <stat.icon className="size-6 text-primary" />
+              </div>
+              <p className="text-2xl font-bold">{stat.value}</p>
+              <p className="text-sm text-muted-foreground">{stat.label}</p>
             </div>
-            <p className="text-2xl font-bold">{totalCourses}</p>
-            <p className="text-sm text-muted-foreground">Available Courses</p>
-          </div>
-          <div className="text-center">
-            <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-lg bg-primary/10">
-              <GraduationCap className="size-6 text-primary" />
-            </div>
-            <p className="text-2xl font-bold">{totalCategories}</p>
-            <p className="text-sm text-muted-foreground">Categories</p>
-          </div>
-          <div className="text-center">
-            <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-lg bg-primary/10">
-              <Users className="size-6 text-primary" />
-            </div>
-            <p className="text-2xl font-bold">Self-paced</p>
-            <p className="text-sm text-muted-foreground">
-              Learn on your schedule
-            </p>
-          </div>
+          ))}
         </div>
       </section>
 
@@ -341,8 +329,25 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       )}
 
       <footer className="border-t border-border py-8">
-        <div className="mx-auto max-w-6xl px-6 text-center text-sm text-muted-foreground">
-          Cadence
+        <div className={content.footer.className}>
+          <p>
+            <span className="font-semibold text-foreground">
+              {content.footer.brand}
+            </span>{" "}
+            {content.footer.tagline}
+          </p>
+          <nav className="flex flex-wrap items-center gap-6">
+            {content.footer.links.map((link) => (
+              <Link
+                key={link.href}
+                to={link.href}
+                className="transition-colors hover:text-foreground"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+          <p>{content.footer.copyright}</p>
         </div>
       </footer>
 
