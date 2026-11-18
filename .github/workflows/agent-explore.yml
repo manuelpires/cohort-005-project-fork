@@ -84,7 +84,7 @@ jobs:
   explore:
     if: github.event.label.name == 'agent:explore'
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     permissions:
       contents: read # the checkout. The tickets are read with FACTORY_PAT.

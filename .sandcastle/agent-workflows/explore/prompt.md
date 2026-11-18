@@ -28,3 +28,13 @@ Include filenames, and lines of code. Remember that the agent that implements wi
    - When an issue shows in the UI, save a screenshot of it as /tmp/evidence/<issue-number>-<name>.png. Reference it in that issue's comment by its absolute path, e.g. `![now](/tmp/evidence/12-now.png)`. The workflow uploads them.
 
 You and every subagent are read-only, apart from /tmp/evidence/. The plan is your only output, and you will be asked for it as structured output. The workflow checks it, posts every comment and closes every duplicate.
+
+Before you finish, stop anything you started that is still running — the dev
+server, any browser you drove for screenshots — so nothing outlives your
+session. Then, when you are completely finished, end your final message with
+this exact line and nothing after it:
+
+<promise>COMPLETE</promise>
+
+The workflow watches for that line to know you are done; without it your run
+hangs until it times out and fails.
