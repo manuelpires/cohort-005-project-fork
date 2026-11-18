@@ -9,8 +9,10 @@ export type LandingStat = { value: string; label: string; icon: LucideIcon };
 export type LandingContent = {
   hero: {
     eyebrow: string;
+    eyebrowClassName: string;
     headlineLead: string;
     headlineMuted: string;
+    headlineClassName: string;
     description: string;
     ctas: LandingCta[];
     className: string;
@@ -56,8 +58,12 @@ function buildHero(signedIn: boolean): LandingContent["hero"] {
 
   return {
     eyebrow: "Built for developers",
+    eyebrowClassName:
+      "text-sm font-medium uppercase tracking-widest text-primary",
     headlineLead: "Learn to code,",
     headlineMuted: "at your own pace",
+    headlineClassName:
+      "mt-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl",
     description:
       "Structured courses built by experienced instructors. Track your progress, take quizzes, and build real-world skills.",
     ctas: [

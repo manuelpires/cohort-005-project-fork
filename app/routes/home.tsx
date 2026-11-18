@@ -233,10 +233,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       </header>
 
       <section className={content.hero.className}>
-        <p className="text-sm font-medium uppercase tracking-widest text-primary">
-          {content.hero.eyebrow}
-        </p>
-        <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+        <p className={content.hero.eyebrowClassName}>{content.hero.eyebrow}</p>
+        <h1 className={content.hero.headlineClassName}>
           {content.hero.headlineLead}
           <br />
           <span className="text-muted-foreground">

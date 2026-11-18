@@ -18,6 +18,8 @@ describe("buildLandingContent", () => {
   it("left-aligns every section: no centering class survives anywhere", () => {
     const classSlots = [
       signedOut.hero.className,
+      signedOut.hero.eyebrowClassName,
+      signedOut.hero.headlineClassName,
       signedOut.hero.descriptionClassName,
       signedOut.hero.ctaRowClassName,
       signedOut.stats.className,
@@ -36,6 +38,12 @@ describe("buildLandingContent", () => {
   });
 
   it("keeps the band and copy styles the page already had, left-aligned", () => {
+    expect(signedOut.hero.eyebrowClassName).toBe(
+      "text-sm font-medium uppercase tracking-widest text-primary"
+    );
+    expect(signedOut.hero.headlineClassName).toBe(
+      "mt-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
+    );
     expect(signedOut.hero.descriptionClassName).toBe(
       "mt-6 max-w-2xl text-lg text-muted-foreground"
     );
