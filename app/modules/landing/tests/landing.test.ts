@@ -15,7 +15,7 @@ const signedIn = buildLandingContent({
 });
 
 describe("buildLandingContent", () => {
-  it("left-aligns every section: no centering class survives anywhere", () => {
+  it("emits no centering class for any section it styles", () => {
     const classSlots = [
       signedOut.hero.className,
       signedOut.hero.eyebrowClassName,
