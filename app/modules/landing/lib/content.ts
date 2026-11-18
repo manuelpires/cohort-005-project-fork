@@ -30,6 +30,7 @@ export type LandingContent = {
   footer: {
     brand: string;
     tagline: string;
+    copyright: string;
     links: LandingLink[];
     className: string;
   };
@@ -115,14 +116,16 @@ function buildStats(input: LandingInput): LandingContent["stats"] {
 }
 
 function buildFooter(signedIn: boolean): LandingContent["footer"] {
+  const brand = "Cadence";
   const accountLink: LandingLink = {
     label: signedIn ? "Dashboard" : "Sign up",
     href: accountHref(signedIn),
   };
 
   return {
-    brand: "Cadence",
+    brand,
     tagline: "Learn at your own pace.",
+    copyright: `© ${brand}. All rights reserved.`,
     links: [{ label: "Courses", href: "/courses" }, accountLink],
     className:
       "mx-auto flex max-w-6xl flex-col gap-3 px-6 text-left text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between",

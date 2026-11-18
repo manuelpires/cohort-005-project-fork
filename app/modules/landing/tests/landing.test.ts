@@ -107,6 +107,7 @@ describe("buildLandingContent", () => {
   it("names the product in the footer and links into the catalog", () => {
     expect(signedOut.footer.brand).toBe("Cadence");
     expect(signedOut.footer.tagline).toBe("Learn at your own pace.");
+    expect(signedOut.footer.copyright).toBe("© Cadence. All rights reserved.");
     expect(signedOut.footer.links).toEqual([
       { label: "Courses", href: "/courses" },
       { label: "Sign up", href: "/signup" },

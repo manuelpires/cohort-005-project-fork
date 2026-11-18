@@ -347,6 +347,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               </Link>
             ))}
           </nav>
+          <p>{content.footer.copyright}</p>
         </div>
       </footer>
 
