@@ -54,10 +54,16 @@ export function buildLandingContent(input: LandingInput): LandingContent {
   };
 }
 
+function accountHref(signedIn: boolean): string {
+  return signedIn ? "/dashboard" : "/signup";
+}
+
 function buildHero(signedIn: boolean): LandingContent["hero"] {
-  const accountCta: LandingCta = signedIn
-    ? { label: "Go to dashboard", href: "/dashboard", variant: "outline" }
-    : { label: "Create an account", href: "/signup", variant: "outline" };
+  const accountCta: LandingCta = {
+    label: signedIn ? "Go to dashboard" : "Create an account",
+    href: accountHref(signedIn),
+    variant: "outline",
+  };
 
   return {
     eyebrow: "Built for developers",
@@ -109,9 +115,10 @@ function buildStats(input: LandingInput): LandingContent["stats"] {
 }
 
 function buildFooter(signedIn: boolean): LandingContent["footer"] {
-  const accountLink: LandingLink = signedIn
-    ? { label: "Dashboard", href: "/dashboard" }
-    : { label: "Sign up", href: "/signup" };
+  const accountLink: LandingLink = {
+    label: signedIn ? "Dashboard" : "Sign up",
+    href: accountHref(signedIn),
+  };
 
   return {
     brand: "Cadence",
