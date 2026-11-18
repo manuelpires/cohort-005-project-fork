@@ -246,17 +246,10 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </p>
         <div className={content.hero.ctaRowClassName}>
           {content.hero.ctas.map((cta) => (
-            <Button
-              key={cta.href}
-              asChild
-              size="lg"
-              variant={cta.variant === "outline" ? "outline" : "default"}
-            >
+            <Button key={cta.href} asChild size="lg" variant={cta.variant}>
               <Link to={cta.href}>
                 {cta.label}
-                {cta.variant === "primary" && (
-                  <ArrowRight className="ml-2 size-4" />
-                )}
+                {cta.icon && <ArrowRight className="ml-2 size-4" />}
               </Link>
             </Button>
           ))}

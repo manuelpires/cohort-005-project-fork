@@ -66,7 +66,12 @@ describe("buildLandingContent", () => {
       "Structured courses built by experienced instructors. Track your progress, take quizzes, and build real-world skills."
     );
     expect(signedOut.hero.ctas).toEqual([
-      { label: "Browse courses", href: "/courses", variant: "primary" },
+      {
+        label: "Browse courses",
+        href: "/courses",
+        variant: "default",
+        icon: true,
+      },
       { label: "Create an account", href: "/signup", variant: "outline" },
     ]);
   });

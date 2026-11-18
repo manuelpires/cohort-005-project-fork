@@ -2,7 +2,10 @@ import { BookOpen, Clock, GraduationCap, type LucideIcon } from "lucide-react";
 
 export type LandingLink = { label: string; href: string };
 
-export type LandingCta = LandingLink & { variant: "primary" | "outline" };
+export type LandingCta = LandingLink & {
+  variant: "default" | "outline";
+  icon?: boolean;
+};
 
 export type LandingStat = { value: string; label: string; icon: LucideIcon };
 
@@ -67,7 +70,12 @@ function buildHero(signedIn: boolean): LandingContent["hero"] {
     description:
       "Structured courses built by experienced instructors. Track your progress, take quizzes, and build real-world skills.",
     ctas: [
-      { label: "Browse courses", href: "/courses", variant: "primary" },
+      {
+        label: "Browse courses",
+        href: "/courses",
+        variant: "default",
+        icon: true,
+      },
       accountCta,
     ],
     className: "mx-auto max-w-6xl px-6 py-20 text-left sm:py-28",
