@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
-import { createTestDb, seedBaseData, type TestDb } from "~/test/setup";
+import {
+  createTestDb,
+  countQueries,
+  seedBaseData,
+  type TestDb,
+} from "~/test/setup";
 import * as schema from "~/db/schema";
 import { QuestionType } from "~/db/schema";
 import {
@@ -424,5 +429,35 @@ describe("parsing a submitted quiz", () => {
     formData.set("question-", "3");
 
     expect(parseQuizSubmission(formData)).toEqual({ ok: false });
+  });
+});
+
+describe("query budget", () => {
+  const question = (n: number) => ({
+    questionText: `Q${n}`,
+    questionType: QuestionType.MultipleChoice,
+    options: [
+      { optionText: "Wrong" },
+      { optionText: "Right", isCorrect: true },
+    ],
+  });
+
+  it("reads a quiz with a fixed query count, however many questions it has", () => {
+    seedQuiz(lessonIds[0], [question(1)]);
+    const one = countQueries(db, () =>
+      getQuizForLesson(db, lessonIds[0])
+    ).queryCount;
+
+    seedQuiz(lessonIds[1], [
+      question(1),
+      question(2),
+      question(3),
+      question(4),
+    ]);
+    const four = countQueries(db, () =>
+      getQuizForLesson(db, lessonIds[1])
+    ).queryCount;
+
+    expect(four).toBe(one);
   });
 });
